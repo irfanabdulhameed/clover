@@ -8,7 +8,7 @@ final class HomeController: NSObject, NSPopoverDelegate {
     private let bloom: BloomController
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
-    private lazy var settings = SettingsWindowController(model: model)
+    private lazy var dashboard = DashboardWindowController(model: model, bloom: bloom)
 
     init(model: AppModel, bloom: BloomController) {
         self.model = model
@@ -16,15 +16,15 @@ final class HomeController: NSObject, NSPopoverDelegate {
         super.init()
     }
 
-    /// Puts the icon in the menu bar. With `--render-home <folder>` or `--render-settings <folder>`
+    /// Puts the icon in the menu bar. With `--render-home <folder>` or `--render-dashboard <folder>`
     /// it draws pictures of the windows into the folder instead, and quits.
     func install() {
         if let folder = Self.argument(after: "--render-home") {
             Task { await HomeRender.renderHome(into: URL(fileURLWithPath: folder)); exit(0) }
             return
         }
-        if let folder = Self.argument(after: "--render-settings") {
-            Task { await HomeRender.renderSettings(model: model, into: URL(fileURLWithPath: folder)); exit(0) }
+        if let folder = Self.argument(after: "--render-dashboard") {
+            Task { await DashboardRender.render(into: URL(fileURLWithPath: folder)); exit(0) }
             return
         }
 
@@ -50,10 +50,10 @@ final class HomeController: NSObject, NSPopoverDelegate {
         statusItem = item
     }
 
-    /// Opens Settings, for the menu and for other parts of the app.
-    func openSettings() {
+    /// Opens the Dashboard, for the menu and for other parts of the app.
+    func openDashboard(section: DashboardSection? = nil) {
         popover.performClose(nil)
-        settings.show()
+        dashboard.show(section: section)
     }
 
     // MARK: Menu bar item
@@ -69,7 +69,7 @@ final class HomeController: NSObject, NSPopoverDelegate {
         guard let item = statusItem, let button = item.button else { return }
         popover.performClose(nil)
         let menu = NSMenu()
-        menu.addItem(ActionMenuItem("Settings…", key: ",") { [weak self] in self?.openSettings() })
+        menu.addItem(ActionMenuItem("Dashboard…", key: ",") { [weak self] in self?.openDashboard() })
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Quit Clover", key: "q") { NSApp.terminate(nil) })
         item.menu = menu
@@ -114,7 +114,7 @@ final class HomeController: NSObject, NSPopoverDelegate {
             remove: { [model] item in model.recents.remove(item) },
             clearAll: { [model] in model.recents.clear() },
             refreshTools: { [model] in model.refreshTools() },
-            openSettings: { [weak self] in self?.openSettings() },
+            openDashboard: { [weak self] in self?.openDashboard() },
             quit: { NSApp.terminate(nil) })
     }
 

@@ -1,0 +1,130 @@
+import AppKit
+import Combine
+import SwiftUI
+
+/// How big the Dashboard window is.
+enum DashboardSize {
+    static let standard = NSSize(width: 860, height: 580)
+    static let minimum = NSSize(width: 760, height: 500)
+}
+
+/// The one Dashboard window. It is made the first time and brought to the front after that.
+@MainActor
+final class DashboardWindowController: NSObject {
+    private let model: AppModel
+    private let bloom: BloomController
+    private let login = LaunchAtLogin()
+    private let navigator = DashboardNavigator()
+    private(set) lazy var window: NSWindow = makeWindow()
+    private var titleObserver: AnyCancellable?
+
+    init(model: AppModel, bloom: BloomController) {
+        self.model = model
+        self.bloom = bloom
+    }
+
+    /// Shows the window in front, creating it the first time. `section` picks what it shows.
+    func show(section: DashboardSection? = nil) {
+        if let section { navigator.section = section }
+        model.recents.prune()
+        login.refresh()
+        Self.installMainMenuIfNeeded()
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func makeWindow() -> NSWindow {
+        let root = DashboardRoot(model: model, login: login, navigator: navigator, actions: makeActions())
+        let window = Self.makeWindow(content: root)
+        // The title follows the section.
+        window.title = navigator.section.title
+        titleObserver = navigator.$section.sink { [weak window] section in window?.title = section.title }
+        if !window.setFrameUsingName("CloverDashboard") { window.center() }
+        window.setFrameAutosaveName("CloverDashboard")
+        return window
+    }
+
+    /// A Dashboard-sized window around some content. Also used by the renders.
+    static func makeWindow<Content: View>(content: Content) -> NSWindow {
+        let host = NSHostingController(rootView: content)
+        host.sizingOptions = []
+        let window = NSWindow(contentViewController: host)
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.toolbarStyle = .unified
+        window.isReleasedWhenClosed = false
+        window.setContentSize(DashboardSize.standard)
+        window.contentMinSize = DashboardSize.minimum
+        return window
+    }
+
+    // MARK: Actions
+
+    private func makeActions() -> DashboardActions {
+        DashboardActions(
+            reveal: { [weak self] item in
+                guard let files = self?.existingOutputs(of: item), !files.isEmpty else { return }
+                NSWorkspace.shared.activateFileViewerSelecting(files)
+            },
+            open: { [weak self] item in
+                guard let files = self?.existingOutputs(of: item) else { return }
+                for file in files { NSWorkspace.shared.open(file) }
+            },
+            convertAgain: { [weak self] item in
+                guard let inputs = item.inputs, !inputs.isEmpty,
+                      inputs.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return }
+                self?.bloom.present(files: inputs, at: nil)
+            },
+            remove: { [model] item in model.recents.remove(item) },
+            clearAll: { [model] in model.recents.clear() },
+            refreshTools: { [model] in model.refreshTools() },
+            setLaunchAtLogin: { [login] on in login.setEnabled(on) },
+            openLoginItems: { [login] in login.openLoginItemsSettings() })
+    }
+
+    private func existingOutputs(of item: RecentItem) -> [URL] {
+        let files = item.outputs.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if files.isEmpty { model.recents.prune() }
+        return files
+    }
+
+    // MARK: Menu
+
+    /// Clover has no menu bar of its own, so a text field would ignore ⌘V, ⌘C and ⌘A. This
+    /// gives the window the usual Edit and Window menus. They stay out of sight.
+    private static func installMainMenuIfNeeded() {
+        guard NSApp.mainMenu == nil else { return }
+        let main = NSMenu()
+
+        let app = NSMenu()
+        app.addItem(withTitle: "Quit Clover", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        main.addItem(submenu: app, title: "Clover")
+
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        main.addItem(submenu: edit, title: "Edit")
+
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        main.addItem(submenu: windowMenu, title: "Window")
+
+        NSApp.mainMenu = main
+        NSApp.windowsMenu = windowMenu
+    }
+}
+
+private extension NSMenu {
+    func addItem(submenu: NSMenu, title: String) {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        addItem(item)
+    }
+}

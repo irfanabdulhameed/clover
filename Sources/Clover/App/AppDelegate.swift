@@ -20,4 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         home.install()
         bloom.start()
     }
+
+    /// Opening Clover again from Finder or Spotlight while it runs brings up the Dashboard.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        home.openDashboard()
+        return false
+    }
 }
