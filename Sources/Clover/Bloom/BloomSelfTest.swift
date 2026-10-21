@@ -646,11 +646,12 @@ enum BloomSelfTest {
 
     // MARK: Motion
 
-    /// The curves keep the house rules: fast attack, no overshoot, the pop, exits faster.
+    /// Everything is plain until a leaf is chosen; the choice plays the wave, keeping the
+    /// house rules: fast attack, no overshoot, a one-frame flip, exits faster.
     private static func motion() {
         typealias M = Motion
-        let at140 = M.settle(0.140 / M.Open.slot)
-        expect(abs(at140 - 0.75) < 0.02, "75 % of the way at 140 ms of 300: \(at140)")
+        let at = M.settle(0.140 / 0.300)
+        expect(abs(at - 0.75) < 0.02, "75 % of the way at 140 ms of 300: \(at)")
         var last = 0.0
         var overshoot = false
         for i in 0...100 {
@@ -660,71 +661,85 @@ enum BloomSelfTest {
         }
         expect(!overshoot && M.settle(1) == 1 && M.settle(0) == 0, "settle never overshoots")
         expect(M.exit(0) == 0 && M.exit(1) == 1 && M.exit(0.5) < 0.5, "exits accelerate away")
-        expect(M.Cancel.duration < M.Open.slot && M.Chips.leave < M.Chips.settle + 0.02 && M.Tray.close < M.Tray.settle,
-               "exits are faster than entrances")
 
+        // Plain: opening, hover, chips, tray and cancel are instant.
         var e = BloomEvents()
         e.openedAt = 0
         e.slotsAt = 0
-        let c = CGPoint(x: 0, y: -115)
-        let born = M.slot(0, count: 6, center: c, e, now: 0).look
-        expect(born.blur == M.Open.slotBlur && born.scale == M.Open.slotFrom && born.opacity == 0, "slots are born blurred, near the hub")
-        let settledSlot = M.slot(0, count: 6, center: c, e, now: 1).look
-        expect(settledSlot == .still, "and settle sharp, in place")
-        let third = M.slot(2, count: 6, center: c, e, now: 0.3).look
-        expect(third.scale < 1, "staggered clockwise: the third slot is still unfolding at 300 ms")
-        expect(M.disc(e, now: 0).scale == M.Open.discFrom && M.disc(e, now: 0.3).scale == 1, "the disc grows from 85 %")
-        expect((M.lightRing(e, now: 0.25) != nil) == M.Open.ringEnabled && M.lightRing(e, now: 0.5) == nil, "the ring of light lasts 500 ms, when it's on")
-
+        let c = CGPoint(x: 0, y: -120)
+        expect(M.slot(0, count: 6, center: c, e, now: 0).look == .still && M.slot(5, count: 6, center: c, e, now: 0).look == .still,
+               "slots are there at once, full size and sharp")
+        expect(M.disc(e, now: 0) == .still && M.hub(e, now: 0) == .still && M.capsule(e, now: 0) == .still, "so are the disc, hub and capsule")
+        expect(M.lightRing(e, now: 0.2) == nil, "no ring of light on open")
+        expect(M.busyUntil(e, count: 6) < 0, "opening runs no frame clock")
         e.lit = 1
         e.litAt = 2
         e.dimAt = 2
-        let pops = stride(from: 2.0, through: 2.3, by: 0.005).map { M.litScale(e, now: $0) }
-        expect(abs(pops.max()! - M.Hover.peak) < 0.002 && pops.last! == M.Hover.rest, "the lit slot pops to 108 % and rests at 104 %")
-        let (litLook, litFill) = M.slot(1, count: 6, center: c, e, now: 2.002)
-        expect(litFill == .lit && litLook.blur == 0, "the lit flip is instant, with no fade")
-        let other = M.slot(0, count: 6, center: c, e, now: 3).look
-        expect(abs(other.opacity - M.Hover.dimOpacity) < 0.001 && other.blur == M.Hover.dimBlur, "the others dim and soften")
-        let g1 = M.glow(e, now: 2.6)!, g2 = M.glow(e, now: 3.8)!
-        expect(abs(g1.scale - g2.scale) > 0.03, "the glow breathes")
-        expect((M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.2) != nil) == M.Hover.rippleEnabled
-               && M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.46) == nil,
-               "one ripple, 450 ms, when it's on")
-
+        let (litLook, litFill) = M.slot(1, count: 6, center: c, e, now: 2)
+        expect(litFill == .lit && litLook == .still, "the lit slot flips to green at once, with no pop")
+        let other = M.slot(0, count: 6, center: c, e, now: 2).look
+        expect(abs(other.opacity - M.Hover.dimOpacity) < 0.001 && other.blur == 0 && other.scale == 1, "the others dim at once to 85 %, with no blur")
+        expect(M.glow(e, now: 2.5) == nil, "no glow or breathing")
+        expect(M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.1) == nil, "no hover ripple")
         e.chipsLeaf = 1
         e.chipsAt = 4
-        e.chipRank = [1, 0, 2]
-        let chip = M.chipIn(rank: 0, since: e.chipsAt, e, now: 4)
-        expect(chip.blur == M.Chips.bornBlur && chip.scale == M.Chips.bornScale, "chips are born at 20 px and 110 %")
-        expect(M.chipIn(rank: 2, since: e.chipsAt, e, now: 4.13).blur > 0 && M.chipIn(rank: 0, since: e.chipsAt, e, now: 4.131).blur == 0,
-               "chips sharpen in 130 ms, 20 ms apart")
+        expect(M.chipIn(rank: 0, since: 4, e, now: 4) == .still && M.chipOut(towards: .zero, e, now: 4) == nil
+               && M.litPop(at: 4, e, now: 4.01) == 1, "chips come and go at once")
+        e.trayAt = 5
+        expect(M.tray(e, now: 5) == .still && M.pill(3, e, now: 5) == .still, "the tray and its pills appear at once")
+        e.trayClosingAt = 6
+        expect(M.tray(e, now: 6) == .hidden && M.trayCloseDuration(reduce: false) == 0, "and go at once")
+        e.trayClosingAt = nil
+        var cancelled = e
+        cancelled.cancelAt = 7
+        expect(M.slot(0, count: 6, center: c, cancelled, now: 7).look.opacity == 0 && M.disc(cancelled, now: 7).opacity == 0
+               && M.cancelDuration(reduce: false) == 0, "cancel hides the clover at once")
 
-        e.drop = BloomEvents.Drop(at: 6, slot: 1, chip: nil, pill: nil)
-        expect(M.slot(1, count: 6, center: c, e, now: 6).fill == .flash && M.slot(1, count: 6, center: c, e, now: 6.02).fill == .lit,
+        // Choosing a leaf: the wave.
+        let d0: TimeInterval = 10
+        e.drop = BloomEvents.Drop(at: d0, slot: 1, chip: nil, pill: nil)
+        expect(M.slot(1, count: 6, center: c, e, now: d0).fill == .flash && M.slot(1, count: 6, center: c, e, now: d0 + 0.02).fill == .lit,
                "the chosen slot flashes white for one frame")
-        let folded = M.slot(0, count: 6, center: c, e, now: 6 + M.Drop.fold + 0.001)
-        expect(folded.look.opacity == 0, "the others fold away in 140 ms")
-        expect(M.carryRing(e, now: 6.29) == nil && M.carryRing(e, now: 6.31) != nil, "the slot becomes the ring at the hub")
-        let handoff = M.carryRing(e, now: 6 + M.Drop.handoff)!
-        expect(handoff == .still, "at the handoff the ring sits still at the hub, ready for the chip")
-        expect(abs(M.disc(e, now: 6 + M.Drop.handoff).scale - M.Drop.carrySide / (G.discRadius * 2)) < 0.001, "the disc shrinks to the ring's size")
-        let glide = M.slot(1, count: 6, center: c, e, now: 6 + M.Drop.glideDelay + M.Drop.glide - 0.001).look
-        expect(abs(glide.offset.height + c.y) < 0.5, "the chosen slot glides to the hub in 250 ms")
+        let pops = stride(from: 0.0, through: 0.2, by: 0.004).map { M.slot(1, count: 6, center: c, e, now: d0 + $0).look.scale }
+        expect(abs(pops.max()! - M.Drop.popPeak) < 0.003 && pops.last! == 1, "and pops to 108 %, back to its size")
+        let glow0 = M.dropGlow(e, now: d0 + 0.05), glowEnd = M.dropGlow(e, now: d0 + M.Drop.glowFade + 0.001)
+        expect((glow0?.opacity ?? 0) > 0.9 && glowEnd == nil, "a glow blooms behind it at once and fades with the wave")
+        let w0 = M.wave(e, now: d0)!, wMid = M.wave(e, now: d0 + M.Drop.wave * 0.467)!
+        expect(w0.radius == 0 && w0.strength == 1, "the wave starts at the chosen slot")
+        expect(abs(wMid.radius / M.Drop.waveReach - 0.75) < 0.03, "fast attack: 75 % of its reach at 47 % of its time")
+        var radii: [CGFloat] = []
+        for i in 0..<100 { radii.append(M.wave(e, now: d0 + M.Drop.wave * Double(i) / 100)!.radius) }
+        expect(zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 } && radii.max()! <= M.Drop.waveReach,
+               "the wave never overshoots or comes back")
+        expect(M.Drop.waveReach >= G.discRadius * 2 - 1, "it crosses the whole disc and past the rim")
+        expect(M.wave(e, now: d0 + M.Drop.wave + 0.001) == nil, "it is gone at \(Int(M.Drop.wave * 1000)) ms")
+        let near = M.wave(e, now: d0 + 0.05)!, far = M.wave(e, now: d0 + 0.3)!
+        expect(near.bendScale() > 1 && far.bendScale() > 1 && near.bendScale() <= M.Drop.waveMaxScale && far.strength < near.strength,
+               "the band bends what's under it, less as it travels")
+        expect(abs((far.bendScale() - 1) * far.radius - M.Drop.waveShift * CGFloat(far.strength)) < 0.5, "the middle of the band pushes about 8 pt outward")
+        expect(abs((far.bendScale(0.5) - 1) * far.radius - M.Drop.waveShift * CGFloat(far.strength) / 2) < 0.5, "its sides half that, so it ramps")
+        // The others stay through the wave, then fold away in 120 ms.
+        expect(M.slot(0, count: 6, center: c, e, now: d0 + M.Drop.foldAt - 0.001).look.opacity > 0.8, "the others stay while the wave rolls")
+        expect(M.slot(0, count: 6, center: c, e, now: d0 + M.Drop.foldAt + M.Drop.fold + 0.001).look.opacity == 0, "then fold into the hub in 120 ms")
+        expect(M.Drop.fold < M.Drop.wave, "the fold is faster than the wave")
+        // The chosen slot gathers to the centre and becomes the ring.
+        let gathered = M.slot(1, count: 6, center: c, e, now: d0 + M.Drop.glideDelay + M.Drop.glide - 0.001).look
+        expect(abs(gathered.offset.height + c.y) < 0.6, "the chosen slot gathers to the hub")
+        expect(M.carryRing(e, now: d0 + M.Drop.ringAt - 0.001) == nil && M.carryRing(e, now: d0 + M.Drop.ringAt + 0.001) != nil,
+               "and becomes the ring")
+        expect(M.carryRing(e, now: d0 + M.Drop.handoff) == .still, "at the handoff the ring sits still at the hub")
+        expect(abs(M.disc(e, now: d0 + M.Drop.handoff).scale - M.Drop.carrySide / (G.discRadius * 2)) < 0.001, "the disc shrinks to the ring's size")
+        expect(M.Drop.handoff == 0.6 && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 600 ms, no gap")
+        expect(M.busyUntil(e, count: 6) >= d0 + M.Drop.handoff, "the frame clock runs to the handoff")
 
-        var r = BloomEvents()
+        // Reduce motion: no wave and no fold, a fade, then the ring until the chip.
+        var r = e
         r.reduce = true
-        r.openedAt = 0
-        r.slotsAt = 0
-        let half = M.slot(0, count: 6, center: c, r, now: M.fade / 2).look
-        expect(half.scale == 1 && half.blur == 0 && half.offset == .zero && half.opacity > 0.3, "reduce motion: slots fade in place")
-        expect(M.lightRing(r, now: 0.1) == nil, "reduce motion: no ring of light")
-        r.lit = 0
-        r.litAt = 1
-        expect(M.slot(0, count: 6, center: c, r, now: 1.01).look.scale == 1 && M.slot(0, count: 6, center: c, r, now: 1.01).fill == .lit,
-               "reduce motion: the slot lights without a pop")
-        expect(M.ripple(BloomEvents.Ripple(slot: 0, at: 1), r, now: 1.1) == nil, "reduce motion: no ripple")
-        let still1 = M.glow(r, now: 2)!, still2 = M.glow(r, now: 3)!
-        expect(still1.scale == still2.scale && still1.opacity == still2.opacity && still1.opacity == 1, "reduce motion: the glow is lit and still")
+        expect(M.wave(r, now: d0 + 0.1) == nil && M.dropGlow(r, now: d0 + 0.02) == nil, "reduce motion: no wave, no glow")
+        let faded = M.slot(0, count: 6, center: c, r, now: d0 + M.fade / 2).look
+        expect(faded.scale == 1 && faded.blur == 0 && faded.offset == .zero && faded.opacity < 0.85, "reduce motion: the others fade in place")
+        expect(M.slot(1, count: 6, center: c, r, now: d0 + M.fade).look.opacity == 0, "reduce motion: gone in 150 ms")
+        expect(M.carryRing(r, now: d0 + M.Drop.handoff)?.opacity == 1, "reduce motion: the ring waits for the chip")
     }
 
     // MARK: Chip texts

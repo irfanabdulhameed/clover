@@ -724,7 +724,7 @@ final class BloomModel: ObservableObject {
             return
         }
         let until = Motion.busyUntil(events, count: leafCount)
-        let breathing = events.lit != nil && !events.reduce && phase == .open
+        let breathing = Motion.Hover.glowEnabled && events.lit != nil && !events.reduce && phase == .open
         let moving = breathing || now < until
         if animating != moving { animating = moving }
         quietTimer?.cancel()

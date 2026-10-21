@@ -22,7 +22,7 @@ enum ChipMotion {
 
     /// With a clover behind it, the chip waits this long after the drop. The clover's own
     /// ring is on screen until then, so the two never show at once.
-    static let ringAppearDelay = 0.38
+    static let ringAppearDelay = 0.60
     /// The ring grows into the chip.
     static let grow = 0.30
     /// Without a clover, the chip is born blurred, a little large, and sharpens.

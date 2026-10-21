@@ -178,9 +178,19 @@ enum BloomDebug {
         m.pointer(at: BloomLayout.labelBox(0, of: m.leafCount).mid)
         for i in 0..<60 { frame(t0 + 1 + Double(i) / 120) }
         let first = times.removeFirst()
-        let sorted = times.sorted()
-        print(String(format: "first frame %.1f ms; then %d frames: median %.1f ms, 95th %.1f ms, max %.1f ms",
-                     first, times.count, sorted[sorted.count / 2], sorted[sorted.count * 95 / 100], sorted.last ?? 0))
+        func report(_ name: String, _ list: [Double]) {
+            let sorted = list.sorted()
+            print(String(format: "%@: %d frames, median %.1f ms, 95th %.1f ms, max %.1f ms",
+                         name, list.count, sorted[sorted.count / 2], sorted[sorted.count * 95 / 100], sorted.last ?? 0))
+        }
+        print(String(format: "first frame %.1f ms", first))
+        report("open and hover", times)
+        // The drop: the wave and the carry, every frame at 120 Hz.
+        times = []
+        clock.now = t0 + 2
+        m.drop()
+        for i in 0...72 { frame(t0 + 2 + Double(i) / 120) }
+        report("drop wave and carry", times)
         return 0
     }
 
@@ -203,8 +213,9 @@ enum BloomDebug {
         let open = make(files, arrangement), openLight = make(files, arrangement)
         let hover = make(files, arrangement), chipsIn = make(files, arrangement), chipsOut = make(files, arrangement)
         let drop = make(files, arrangement), cancel = make(files, arrangement), tray = make(files, arrangement)
+        let dropLight = make(files, arrangement)
         let reduceOpen = make(files, arrangement, reduce: true), reduceDrop = make(files, arrangement, reduce: true)
-        let all = [open, openLight, hover, chipsIn, chipsOut, drop, cancel, tray, reduceOpen, reduceDrop]
+        let all = [open, openLight, hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceOpen, reduceDrop]
         for (m, _) in all { await m.waitForThumbnails(timeout: 4) }
 
         // Scripted on the fake clock, after every await, so no timer fires in between.
@@ -212,7 +223,7 @@ enum BloomDebug {
             clock.now = t0
             m.open()
         }
-        for (m, clock) in [hover, chipsIn, chipsOut, drop, cancel, tray, reduceDrop] {
+        for (m, clock) in [hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceDrop] {
             clock.now = t0 - 10
             m.open()
         }
@@ -225,7 +236,7 @@ enum BloomDebug {
         chipsOut.0.pointer(at: label)
         chipsOut.1.now = t0
         chipsOut.0.pointer(at: .zero)
-        for (m, clock) in [drop, reduceDrop] {
+        for (m, clock) in [drop, dropLight, reduceDrop] {
             clock.now = t0 - 1
             m.pointer(at: label)
             clock.now = t0
@@ -245,15 +256,15 @@ enum BloomDebug {
 
         let ms: (Double) -> TimeInterval = { t0 + $0 / 1000 }
         let rows: [(String, BloomModel, ColorScheme, [Double])] = [
-            ("open", open.0, .dark, [0, 30, 60, 140, 300, 500]),
-            ("open", openLight.0, .light, [0, 30, 60, 140, 300, 500]),
-            ("hover: flip, pop, ripple, glow", hover.0, .dark, [0, 30, 90, 200, 300, 450]),
-            ("chips born", chipsIn.0, .dark, [0, 40, 80, 130, 170, 300]),
-            ("chips leave", chipsOut.0, .dark, [0, 30, 55, 80, 110, 160]),
-            ("drop and carry", drop.0, .dark, [0, 17, 60, 140, 250, 299, 310, 380]),
-            ("cancel", cancel.0, .dark, [0, 40, 80, 120, 160]),
-            ("reduce motion: open", reduceOpen.0, .dark, [0, 75, 150, 300]),
-            ("reduce motion: drop", reduceDrop.0, .dark, [0, 17, 75, 150, 225, 380]),
+            ("drop: the wave", drop.0, .dark, [0, 60, 140, 220, 320, 420, 520, 600]),
+            ("drop: the wave", dropLight.0, .light, [0, 60, 140, 220, 320, 420, 520, 600]),
+            ("open, instant", open.0, .dark, [0]),
+            ("open, instant", openLight.0, .light, [0]),
+            ("hover, instant", hover.0, .dark, [0]),
+            ("chips, instant", chipsIn.0, .dark, [0]),
+            ("chips gone at once", chipsOut.0, .dark, [0]),
+            ("cancel: gone at once", cancel.0, .dark, [0]),
+            ("reduce motion: drop", reduceDrop.0, .dark, [0, 75, 150, 300, 600]),
         ]
         let tile: CGFloat = 520
         let sheet = VStack(alignment: .leading, spacing: 0) {

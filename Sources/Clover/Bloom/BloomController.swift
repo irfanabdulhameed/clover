@@ -74,6 +74,12 @@ final class BloomController: BloomInteractionDelegate {
                 SlotLabel(title: "JPG", symbol: "ellipsis", hue: .orange, lit: true, width: 80)
                 CapsuleLabel(text: "2.2 MB")
                 ChipView(title: "Balanced", isDefault: true, isLit: false, isFocused: false, hue: .orange)
+                // The wave's light and band masks, so the first choice isn't the first time.
+                let wave = Wave(radius: 120, band: Motion.Drop.waveBand, strength: 1, lift: 0.05)
+                let side = BloomGeometry.panelSize, origin = CGPoint(x: side / 2, y: side / 2 - 100)
+                Circle().fill(Color.white).frame(width: 200, height: 200)
+                    .mask(WaveMask(origin: origin, wave: wave, part: .sides, side: side))
+                WaveLight(origin: origin, wave: wave, side: side)
             }.environment(\.bloomSnapshot, true))
             _ = warm.cgImage
         }
@@ -387,10 +393,14 @@ final class BloomController: BloomInteractionDelegate {
                 trayPanel.orderOut(nil)
                 return
             }
-            // It shrinks back towards More first.
+            // It shrinks back towards More first, when the tray is animated.
+            let close = Motion.trayCloseDuration(reduce: model.settings.reduceMotion)
+            guard close > 0 else {
+                trayPanel.orderOut(nil)
+                return
+            }
             let work = DispatchWorkItem { [weak trayPanel] in trayPanel?.orderOut(nil) }
             pendingTrayHide = work
-            let close = model.settings.reduceMotion ? Motion.fade : Motion.Tray.close
             DispatchQueue.main.asyncAfter(deadline: .now() + close, execute: work)
             return
         }
@@ -412,7 +422,7 @@ final class BloomController: BloomInteractionDelegate {
         shownMode = nil
         panel?.allowsKey = false
         bloom.cancel()
-        finish(after: bloom.reduceMotion ? Motion.fade : Motion.Cancel.duration)
+        finish(after: Motion.cancelDuration(reduce: bloom.reduceMotion))
     }
 
     /// Hides the windows once `delay` has passed.
@@ -446,8 +456,9 @@ final class BloomController: BloomInteractionDelegate {
         guard !files.isEmpty, shownMode != nil else { return }
         pendingHide?.cancel()
         pendingHide = nil
-        // The chosen slot flashes and glides to the hub, where it becomes the progress
-        // ring; the result chip takes the ring over at `BloomAnchor` when the panel hides.
+        // The chosen slot flashes, the wave rolls across the disc, and the slot gathers to
+        // the hub as the progress ring; the result chip takes the ring over at
+        // `BloomAnchor` when the panel hides.
         bloom.drop()
         tick(.generic)
         shownMode = nil
@@ -490,7 +501,7 @@ final class BloomController: BloomInteractionDelegate {
 
 /// Where the clover was when a conversion started from it, so the result chip can
 /// appear in the same place: the hub's centre on screen. The clover's carry ends there
-/// `Motion.Drop.handoff` (380 ms) after the drop, as a `Motion.Drop.carrySide` clover-green
+/// `Motion.Drop.handoff` (600 ms) after the drop, as a `Motion.Drop.carrySide` clover-green
 /// disc with a `Motion.Drop.ringSide` ring on it; the chip starts as that ring.
 @MainActor
 enum BloomAnchor {
