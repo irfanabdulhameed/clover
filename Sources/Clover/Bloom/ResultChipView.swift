@@ -173,11 +173,17 @@ struct ChipDisplay: Equatable {
 /// What the chip shows, updated by its controller.
 @MainActor
 final class ResultChipState: ObservableObject {
+    /// What the job says now.
     @Published var display: ChipDisplay
+    /// What the job said while it ran. The chip keeps showing it until the result flips in.
+    @Published var running: ChipDisplay
     @Published var thumbnail: NSImage?
     @Published var outputs: [URL] = []
 
-    init(display: ChipDisplay) { self.display = display }
+    init(display: ChipDisplay) {
+        self.display = display
+        running = display
+    }
 }
 
 /// What the chip's buttons and body do.
@@ -186,24 +192,59 @@ struct ChipActions {
     var undo: () -> Void = {}
     var dismiss: () -> Void = {}
     var reveal: () -> Void = {}
+    /// The pointer came in or went out.
+    var hover: (Bool) -> Void = { _ in }
+    /// The chip was clicked, so ⌘Z and Esc are about it.
+    var focus: () -> Void = {}
 }
 
 /// The result chip: progress while running, then the result.
+///
+/// `values` says how far along its motion the chip is (see `ChipPlayback`); the default is
+/// the chip at rest, which is what the debug sheets draw. `clover` tints the glass with the
+/// clover's green, as the leaves are, or leaves it clear.
 struct ResultChipView: View {
     @ObservedObject var state: ResultChipState
     let actions: ChipActions
+    var values = ChipValues.rest
+    var clover = false
 
-    static let size = CGSize(width: 300, height: 56)
+    static let size = ChipMotion.chipSize
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.bloomSnapshot) private var snapshot
 
     var body: some View {
-        let d = state.display
+        let v = values
+        let d = v.showsRunning ? state.running : state.display
+        let corner: CGFloat = ChipGlassBackground.isLiquid && !snapshot ? ResultChipView.size.height / 2 : v.cornerRadius
+        let shape = RoundedRectangle(cornerRadius: corner, style: .circular)
+        ZStack {
+            if let age = v.ripple {
+                ChipRipple(age: age, width: v.width, color: BloomStyle.green(scheme))
+            }
+            content(d, v)
+                .frame(width: ResultChipView.size.width, height: ResultChipView.size.height, alignment: .leading)
+                .frame(width: v.width, height: ResultChipView.size.height, alignment: .leading)
+                .clipShape(shape)
+                .background(ChipGlassBackground(cornerRadius: corner, clover: clover))
+                .background {
+                    if !snapshot { ChipHoverTracker(onChange: actions.hover) }
+                }
+        }
+        .frame(width: ResultChipView.size.width, height: ResultChipView.size.height)
+        .scaleEffect(v.scale)
+        .blur(radius: v.blur)
+        .opacity(v.opacity)
+        .offset(v.offset)
+        .allowsHitTesting(!v.isHidden && v.isFullSize && v.opacity > 0.9)
+    }
+
+    private func content(_ d: ChipDisplay, _ v: ChipValues) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 10) {
-                leading(d)
-                    .frame(width: 36, height: 36)
+                leading(d, v)
+                    .frame(width: ChipMotion.slot, height: ChipMotion.slot)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(d.title)
                         .font(.system(size: 13, weight: .semibold))
@@ -217,38 +258,38 @@ struct ResultChipView: View {
                         .truncationMode(.tail)
                         .help(d.details)
                 }
+                .opacity(v.textOpacity)
+                .blur(radius: v.textBlur)
+                .scaleEffect(v.textScale, anchor: .leading)
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
             .overlay {
-                if !snapshot && d.isFinished && !state.outputs.isEmpty && d.kind != .undone {
-                    DragOutArea(urls: state.outputs, image: state.thumbnail, onClick: actions.reveal)
+                if !snapshot && d.isFinished && !state.outputs.isEmpty && d.kind != .undone && v.isFullSize {
+                    DragOutArea(urls: state.outputs, image: state.thumbnail, onClick: actions.reveal, onPress: actions.focus)
                 }
             }
             trailing(d)
+                .opacity(v.controlsOpacity)
         }
-        .padding(.leading, 10)
+        .padding(.leading, 8)
         .padding(.trailing, 10)
-        .frame(width: ResultChipView.size.width, height: ResultChipView.size.height)
-        .background(Glass(cornerRadius: 16, bright: true))
     }
 
     @ViewBuilder
-    private func leading(_ d: ChipDisplay) -> some View {
+    private func leading(_ d: ChipDisplay, _ v: ChipValues) -> some View {
         let hue = BloomStyle.hue(d.family, scheme)
         switch d.kind {
         case .running:
+            // The ring the clover left at its hub, with the kind of file inside it.
             ZStack {
-                Circle().stroke(Color.primary.opacity(0.12), lineWidth: 3)
-                Circle()
-                    .trim(from: 0, to: max(0.001, min(d.progress, 1)))
-                    .stroke(hue, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+                ChipRing(progress: v.ringProgress ?? d.progress, diameter: v.ringDiameter)
                 Image(systemName: BloomStyle.symbol(for: d.family))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(hue)
+                    .opacity(v.textOpacity)
+                    .blur(radius: v.textBlur)
             }
-            .padding(3)
         case .done, .partial:
             ZStack(alignment: .bottomTrailing) {
                 if let thumbnail = state.thumbnail {
@@ -256,22 +297,25 @@ struct ResultChipView: View {
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 34, height: 34)
                         .frame(width: 36, height: 36)
+                        .frame(width: 40, height: 40)
                 } else {
                     RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.14))
+                        .frame(width: 36, height: 36)
                         .overlay(Image(systemName: BloomStyle.symbol(for: d.family)).foregroundStyle(hue))
+                        .frame(width: 40, height: 40)
                 }
                 badge(d.kind == .done ? "checkmark" : "exclamationmark",
                       color: d.kind == .done ? BloomStyle.green(scheme) : BloomStyle.hue(.image, scheme))
-                    .offset(x: 4, y: 4)
+                    .offset(x: 2, y: 4)
             }
+            .scaleEffect(v.pop)
         case .failed:
-            symbolDisc("exclamationmark", color: BloomStyle.failure(scheme))
+            symbolDisc("exclamationmark", color: BloomStyle.failure(scheme)).scaleEffect(v.pop)
         case .skipped:
-            symbolDisc("checkmark", color: .secondary)
+            symbolDisc("checkmark", color: .secondary).scaleEffect(v.pop)
         case .cancelled:
-            symbolDisc("xmark", color: .secondary)
+            symbolDisc("xmark", color: .secondary).scaleEffect(v.pop)
         case .undone:
             symbolDisc("trash", color: .secondary)
         }
@@ -281,17 +325,17 @@ struct ResultChipView: View {
     private func trailing(_ d: ChipDisplay) -> some View {
         HStack(spacing: 4) {
             if d.canUndo {
-                Button("Undo", action: actions.undo)
+                Button("Undo") { actions.focus(); actions.undo() }
                     .buttonStyle(ChipTextButtonStyle())
                     .help("Move the result to the Trash (⌘Z)")
             }
             if d.canCancel {
-                Button(action: actions.cancel) { Image(systemName: "xmark") }
+                Button { actions.focus(); actions.cancel() } label: { Image(systemName: "xmark") }
                     .buttonStyle(ChipIconButtonStyle())
                     .help("Cancel")
                     .accessibilityLabel("Cancel")
             } else {
-                Button(action: actions.dismiss) { Image(systemName: "xmark") }
+                Button { actions.focus(); actions.dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(ChipIconButtonStyle())
                     .help("Dismiss")
                     .accessibilityLabel("Dismiss")
@@ -315,7 +359,39 @@ struct ResultChipView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(color)
         }
-        .padding(2)
+        .frame(width: 36, height: 36)
+    }
+}
+
+/// Reports the pointer coming and going over the chip, even while Clover is not the front
+/// app. It lets every click through.
+struct ChipHoverTracker: NSViewRepresentable {
+    var onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> TrackerView {
+        let view = TrackerView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: TrackerView, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class TrackerView: NSView {
+        var onChange: (Bool) -> Void = { _ in }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            for area in trackingAreas { removeTrackingArea(area) }
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                           owner: self, userInfo: nil))
+        }
+
+        override func mouseEntered(with event: NSEvent) { onChange(true) }
+        override func mouseExited(with event: NSEvent) { onChange(false) }
     }
 }
 
@@ -369,6 +445,7 @@ struct DragOutArea: NSViewRepresentable {
     var urls: [URL]
     var image: NSImage?
     var onClick: () -> Void
+    var onPress: () -> Void = {}
 
     func makeNSView(context: Context) -> DragOutView {
         let view = DragOutView()
@@ -380,6 +457,7 @@ struct DragOutArea: NSViewRepresentable {
         view.urls = urls
         view.image = image
         view.onClick = onClick
+        view.onPress = onPress
     }
 }
 
@@ -387,12 +465,14 @@ final class DragOutView: NSView, NSDraggingSource {
     var urls: [URL] = []
     var image: NSImage?
     var onClick: () -> Void = {}
+    var onPress: () -> Void = {}
     private var downPoint: NSPoint?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         downPoint = event.locationInWindow
+        onPress()
     }
 
     override func mouseDragged(with event: NSEvent) {

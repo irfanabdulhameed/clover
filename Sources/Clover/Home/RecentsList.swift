@@ -90,10 +90,12 @@ struct RecentRow: View {
         }
         .padding(.horizontal, 8)
         .frame(height: RecentsSection.rowHeight)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(pressed ? 0.14 : (hovered || forceHover) ? 0.07 : 0))
-        )
+        .background {
+            if pressed || hovered || forceHover {
+                HomeGlassPlate(cornerRadius: 8, tint: nil, fallback: Color.primary.opacity(pressed ? 0.14 : 0.07),
+                               lift: pressed ? 0.06 : 0)
+            }
+        }
         .overlay(RowInteraction(item: item, actions: actions, hovered: $hovered, pressed: $pressed))
         .help(item.outputs.first?.path ?? "")
         .accessibilityElement(children: .ignore)

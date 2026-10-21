@@ -19,6 +19,10 @@ enum DashboardRender {
         var trigger = TriggerKey.shift
         var hold = true
         var hotkey: Hotkey? = .standard
+        var motion = MotionPreference.system
+        var haptics = true
+        var sound = true
+        var leafStyle = LeafStyle.clover
         var login = LoginState()
         var items: [RecentItem] = []
         var engines: [EngineInfo] = []
@@ -85,6 +89,9 @@ enum DashboardRender {
             Scene(name: "shortcuts-recording", section: .shortcuts, trigger: .option, forced: DashboardForced(recording: true)),
             Scene(name: "shortcuts-rejected", section: .shortcuts, forced: DashboardForced(recording: true, rejected: true), bothSchemes: false),
             Scene(name: "shortcuts-off", section: .shortcuts, trigger: .control, hold: false, hotkey: nil),
+            Scene(name: "feel", section: .feel),
+            Scene(name: "feel-custom", section: .feel, motion: .reduced, haptics: false, sound: false, leafStyle: .clear),
+            Scene(name: "feel-min", section: .feel, size: DashboardSize.minimum, bothSchemes: false),
             Scene(name: "history", section: .history, items: items),
             Scene(name: "history-search", section: .history, items: items, forced: DashboardForced(query: "img")),
             Scene(name: "history-nomatch", section: .history, items: items, forced: DashboardForced(query: "zzz")),
@@ -144,6 +151,10 @@ enum DashboardRender {
         @State private var trigger: TriggerKey
         @State private var hold: Bool
         @State private var hotkey: Hotkey?
+        @State private var motion: MotionPreference
+        @State private var haptics: Bool
+        @State private var sound: Bool
+        @State private var leafStyle: LeafStyle
 
         init(scene: Scene, catalog: Catalog) {
             self.scene = scene
@@ -156,6 +167,10 @@ enum DashboardRender {
             _trigger = State(initialValue: scene.trigger)
             _hold = State(initialValue: scene.hold)
             _hotkey = State(initialValue: scene.hotkey)
+            _motion = State(initialValue: scene.motion)
+            _haptics = State(initialValue: scene.haptics)
+            _sound = State(initialValue: scene.sound)
+            _leafStyle = State(initialValue: scene.leafStyle)
         }
 
         var body: some View {
@@ -164,6 +179,7 @@ enum DashboardRender {
                 data: DashboardData(
                     catalog: catalog, layouts: $layouts, conversion: $conversion, outputFolder: $folder,
                     revealAfterConverting: $reveal, triggerKey: $trigger, holdToOpen: $hold, hotkey: $hotkey,
+                    motion: $motion, haptics: $haptics, completionSound: $sound, leafStyle: $leafStyle,
                     login: scene.login, items: scene.items, engines: scene.engines, forced: scene.forced),
                 actions: .none)
         }

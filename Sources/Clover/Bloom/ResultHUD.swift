@@ -1,44 +1,91 @@
 import AppKit
 import Combine
+import QuartzCore
 import SwiftUI
 import CloverCore
 
 /// The small chip that shows a job's progress and result.
 ///
-/// It appears where the bloom was, or at the top right under the menu bar, and
-/// several jobs stack in a column. It never takes focus by itself: it becomes key
+/// It appears where the clover was, as the ring the clover left, or at the top right under
+/// the menu bar, and several jobs stack in a column. All the chips of a column live in one
+/// window, so the system's glass can blend between them. A job that runs long sends the
+/// column up under the menu bar icon. It never takes focus by itself: it becomes key
 /// only when clicked, so ⌘Z and Esc work then.
 @MainActor
 final class ResultHUD {
     private let model: AppModel
-    private var chips: [ResultChip] = []
+    let stack = ChipStackState()
+    private var panel: ChipPanel?
+    private var driver: ChipDriver?
     /// Top-centre of the first chip in the column.
     private var origin: NSPoint?
     private var screen: NSScreen?
+    /// The column has moved up under the menu bar icon.
+    private var docked = false
+    /// The chip that was clicked last: ⌘Z and Esc are about it.
+    private weak var focused: ResultChip?
+    private var shrinkWork: DispatchWorkItem?
     /// Older finished chips give way beyond this many.
     private let limit = 6
     /// Jobs still running, watched so their files can be shown in Finder when done.
     private var revealWatchers: [UUID: AnyCancellable] = [:]
 
+    private var chips: [ResultChip] { stack.chips }
+
     init(model: AppModel) { self.model = model }
 
     func show(_ job: ConversionJob) {
         let anchor = BloomAnchor.take()
-        if chips.isEmpty || origin == nil || screen == nil {
+        let size = ResultChipView.size
+        let fresh = chips.isEmpty || origin == nil || screen == nil
+        if fresh {
             let screen = BloomController.screen(containing: anchor ?? NSEvent.mouseLocation)
             self.screen = screen
-            let size = ResultChipView.size
             origin = anchor.map { NSPoint(x: $0.x, y: $0.y + size.height / 2) }
                 ?? ChipStackLayout.cornerOrigin(size: size, visible: screen.visibleFrame)
+            docked = false
         }
-        if chips.count >= limit, let old = chips.first(where: { $0.job.isFinished }) {
-            remove(old)
+        if chips.filter({ !$0.isLeaving }).count >= limit, let old = chips.first(where: { $0.job.isFinished && !$0.isLeaving }) {
+            old.dismiss()
         }
-        let chip = ResultChip(job: job, service: model.service, hud: self)
-        chips.append(chip)
-        layout()
-        chip.panel.orderFrontRegardless()
+
+        // With a clover behind it, the chip is the clover's ring: it starts where the ring was.
+        var ringStart: CGSize?
+        if fresh, let anchor, let origin, let screen {
+            let frame = ChipStackLayout.frames(count: 1, size: size, origin: origin, visible: screen.visibleFrame)[0]
+            let room = CGSize(width: size.width / 2 + ChipPanel.margin - ChipMotion.dropRingDiameter / 2,
+                              height: size.height / 2 + ChipPanel.margin - ChipMotion.dropRingDiameter / 2)
+            ringStart = CGSize(width: min(max(anchor.x - frame.midX, -room.width), room.width),
+                               height: min(max(frame.midY - anchor.y, -room.height), room.height))
+        }
+
+        let chip = ResultChip(job: job, service: model.service, hud: self, settings: model.settings,
+                              slot: chips.count, ringStart: ringStart)
+        stack.leafStyle = model.settings.leafStyle
+        stack.chips.append(chip)
+        let panel = ensurePanel()
+        applyLayout()
+        panel.orderFrontRegardless()
+        if driver == nil, let view = panel.contentView { driver = ChipDriver(stack: stack, view: view) }
+        wake()
         watchForReveal(job)
+        scheduleDock(for: chip)
+    }
+
+    /// Starts the clock if it has stopped.
+    func wake() {
+        stack.leafStyle = model.settings.leafStyle
+        driver?.wake()
+    }
+
+    func focus(_ chip: ResultChip) { focused = chip }
+
+    private func undoFocused() {
+        (focused ?? chips.last { $0.canUndo })?.undo()
+    }
+
+    private func dismissFocused() {
+        (focused ?? chips.last)?.dismiss()
     }
 
     /// Shows a job's new files in Finder once it is done, when the user asked for that.
@@ -64,31 +111,183 @@ final class ResultHUD {
 
     func remove(_ chip: ResultChip) {
         chip.close()
-        chips.removeAll { $0 === chip }
+        guard chips.contains(where: { $0 === chip }) else { return }
+        stack.chips.removeAll { $0 === chip }
         if chips.isEmpty {
-            origin = nil
-            screen = nil
+            closePanel()
+            return
         }
-        layout()
+        for (index, other) in chips.enumerated() { other.setSlot(index) }
+        applyLayout(holdShrink: true)
+        wake()
     }
 
-    private func layout() {
-        guard let origin, let screen else { return }
+    // MARK: Window
+
+    private func ensurePanel() -> ChipPanel {
+        if let panel { return panel }
+        let panel = ChipPanel()
+        let hosting = FirstClickHostingView(rootView: ChipStackView(stack: stack))
+        hosting.sizingOptions = []
+        panel.contentView = hosting
+        panel.onUndo = { [weak self] in self?.undoFocused() }
+        panel.onDismiss = { [weak self] in self?.dismissFocused() }
+        self.panel = panel
+        return panel
+    }
+
+    private func closePanel() {
+        shrinkWork?.cancel()
+        driver?.stop()
+        driver = nil
+        panel?.orderOut(nil)
+        origin = nil
+        screen = nil
+        docked = false
+        focused = nil
+    }
+
+    /// Where the window goes for the chips now in the column, and which way the column grows.
+    private func targetFrame() -> NSRect? {
+        guard let origin, let screen, !chips.isEmpty else { return nil }
         let frames = ChipStackLayout.frames(count: chips.count, size: ResultChipView.size, origin: origin,
                                             visible: screen.visibleFrame)
-        for (chip, frame) in zip(chips, frames) {
-            chip.panel.setFrame(frame.insetBy(dx: -ChipPanel.margin, dy: -ChipPanel.margin), display: true)
+        stack.downward = frames.count < 2 || frames[1].minY < frames[0].minY
+        let all = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
+        return all.insetBy(dx: -ChipPanel.margin, dy: -ChipPanel.margin)
+    }
+
+    /// Sizes the window for the column. When a chip has left, the window shrinks only after
+    /// the others have glided to their places.
+    private func applyLayout(holdShrink: Bool = false) {
+        guard let panel, let target = targetFrame() else { return }
+        shrinkWork?.cancel()
+        if holdShrink && target.height < panel.frame.height - 0.5 {
+            panel.setFrame(panel.frame.union(target), display: true)
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let panel = self.panel, let target = self.targetFrame() else { return }
+                    panel.setFrame(target, display: true)
+                }
+            }
+            shrinkWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + ChipMotion.reflowDuration + 0.05, execute: work)
+        } else {
+            panel.setFrame(target, display: true)
+        }
+    }
+
+    // MARK: Docking under the menu bar icon
+
+    private func scheduleDock(for chip: ResultChip) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + ChipMotion.dockAfter) { [weak self, weak chip] in
+            MainActor.assumeIsolated {
+                guard let self, let chip else { return }
+                self.dock(because: chip)
+            }
+        }
+    }
+
+    /// A job that runs long sends the whole column up under the menu bar icon, where it waits.
+    /// Nothing travels with reduced motion, and a chip never crosses to another display.
+    private func dock(because chip: ResultChip) {
+        guard !docked, !model.settings.reduceMotion, !chip.job.isFinished, !chip.isLeaving,
+              chips.contains(where: { $0 === chip }), let panel, let screen,
+              let icon = HomeController.statusIconFrame(),
+              BloomController.screen(containing: NSPoint(x: icon.midX, y: icon.midY)) == screen
+        else { return }
+        docked = true
+        origin = NSPoint(x: icon.midX, y: icon.minY - 6)
+        guard let target = targetFrame() else { return }
+        shrinkWork?.cancel()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = ChipMotion.dockDuration
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+            panel.animator().setFrame(target, display: true)
         }
     }
 }
 
-/// One job's chip: its window, what it shows and when it goes.
+// MARK: - What the window draws
+
+/// What the stack's window draws: the chips, and the clock that moves them.
 @MainActor
-final class ResultChip {
+final class ChipStackState: ObservableObject {
+    @Published var chips: [ResultChip] = []
+    /// The clock, in `CACurrentMediaTime` seconds. Every chip reads its own time from it.
+    @Published var tick: CFTimeInterval = CACurrentMediaTime()
+    /// The column grows downward from the first chip, or upward when there is no room below.
+    @Published var downward = true
+    @Published var leafStyle = LeafStyle.clover
+}
+
+/// The column of chips, each at its place in the stack.
+struct ChipStackView: View {
+    @ObservedObject var stack: ChipStackState
+
+    var body: some View {
+        let align: Alignment = stack.downward ? .top : .bottom
+        let step = ChipMotion.chipSize.height + ChipStackLayout.gap
+        ChipGlassContainer {
+            ZStack(alignment: align) {
+                ForEach(stack.chips) { chip in
+                    let t = stack.tick - chip.born
+                    ResultChipView(state: chip.state, actions: chip.actions,
+                                   values: chip.playback.values(at: t), clover: stack.leafStyle == .clover)
+                        .offset(y: CGFloat(chip.playback.slot(at: t)) * step * (stack.downward ? 1 : -1))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: align)
+            .padding(ChipPanel.margin)
+        }
+    }
+}
+
+/// Runs the chips' clock in step with the screen while anything moves, and stops when
+/// everything has settled.
+@MainActor
+final class ChipDriver: NSObject {
+    private let stack: ChipStackState
+    private var link: CADisplayLink?
+
+    init(stack: ChipStackState, view: NSView) {
+        self.stack = stack
+        super.init()
+        let link = view.displayLink(target: self, selector: #selector(step(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    func wake() {
+        stack.tick = CACurrentMediaTime()
+        link?.isPaused = false
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        let now = CACurrentMediaTime()
+        stack.tick = now
+        if stack.chips.allSatisfy({ $0.playback.isSettled(at: now - $0.born) }) { link.isPaused = true }
+    }
+}
+
+// MARK: - One chip
+
+/// One job's chip: what it shows, its motion and when it goes.
+@MainActor
+final class ResultChip: Identifiable {
     let job: ConversionJob
-    let panel: ChipPanel
-    private let state: ResultChipState
+    let state: ResultChipState
+    private(set) var actions = ChipActions()
+    private(set) var playback: ChipPlayback
+    /// When the chip was made, which is the moment of the drop.
+    let born = CACurrentMediaTime()
     private let service: ConversionService
+    private let settings: Settings
     private weak var hud: ResultHUD?
     private var observer: AnyCancellable?
     private var hideWork: DispatchWorkItem?
@@ -97,29 +296,35 @@ final class ResultChip {
     private var hideWhenLeft = false
     private var thumbnailFor: URL?
     private var undoError: String?
+    private var celebrated = false
+    private(set) var isLeaving = false
+
+    let id: UUID
+    var canUndo: Bool { state.display.canUndo }
 
     /// How long a finished chip stays.
     static let stay: TimeInterval = 5
     /// How long it stays after the pointer leaves it, once its time is up.
     static let stayAfterHover: TimeInterval = 1.5
 
-    init(job: ConversionJob, service: ConversionService, hud: ResultHUD) {
+    init(job: ConversionJob, service: ConversionService, hud: ResultHUD, settings: Settings, slot: Int, ringStart: CGSize?) {
         self.job = job
+        id = job.id
         self.service = service
         self.hud = hud
+        self.settings = settings
         state = ResultChipState(display: ChipDisplay(JobSnapshot(job)))
-        panel = ChipPanel()
+        playback = ChipPlayback(reduced: settings.reduceMotion, ringStart: ringStart, slot: slot)
 
-        var actions = ChipActions()
         actions.cancel = { [weak self] in self?.cancel() }
         actions.undo = { [weak self] in self?.undo() }
         actions.dismiss = { [weak self] in self?.dismiss() }
         actions.reveal = { [weak self] in self?.reveal() }
-        let container = ChipContainerView(content: ResultChipView(state: state, actions: actions))
-        container.onHover = { [weak self] in self?.hoverChanged($0) }
-        panel.contentView = container
-        panel.onUndo = { [weak self] in self?.undo() }
-        panel.onDismiss = { [weak self] in self?.dismiss() }
+        actions.hover = { [weak self] in self?.hoverChanged($0) }
+        actions.focus = { [weak self] in
+            guard let self else { return }
+            self.hud?.focus(self)
+        }
 
         observer = job.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -127,19 +332,30 @@ final class ResultChip {
         refresh()
     }
 
+    /// Seconds since the drop.
+    private func time() -> Double { CACurrentMediaTime() - born }
+
     func close() {
         hideWork?.cancel()
         observer = nil
-        panel.orderOut(nil)
+    }
+
+    func setSlot(_ index: Int) {
+        playback.setSlot(index, at: time())
     }
 
     private func refresh() {
+        let t = time()
         var display = ChipDisplay(JobSnapshot(job))
         if let undoError, display.kind == .done || display.kind == .partial {
             display.subtitle = undoError
         }
         state.display = display
         state.outputs = job.outputs
+        if display.kind == .running {
+            state.running = display
+            playback.progress(display.progress, at: t)
+        }
         if let first = job.outputs.first, thumbnailFor != first, display.kind == .done || display.kind == .partial {
             thumbnailFor = first
             state.thumbnail = Thumbnails.icon(for: first)
@@ -151,9 +367,27 @@ final class ResultChip {
         }
         if display.isFinished, display.kind != lastKind {
             // Each new ending (done, then undone) gets its full time on screen.
-            scheduleHide(after: ResultChip.stay)
+            let firstEnding = playback.ending == nil
+            playback.end(display.kind, at: t)
+            let flip = max((playback.ending?.at ?? t) - t, 0)
+            scheduleHide(after: flip + ResultChip.stay)
+            if firstEnding { scheduleFinish(after: flip, kind: display.kind) }
         }
         lastKind = display.kind
+        hud?.wake()
+    }
+
+    /// The tap and the sound come with the flip, once per job whatever its size.
+    private func scheduleFinish(after delay: Double, kind: ChipDisplay.Kind) {
+        guard kind == .done || kind == .partial else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.celebrated else { return }
+                self.celebrated = true
+                if self.settings.haptics { ChipFeedback.tick() }
+                if kind == .done && self.settings.completionSound { ChipFeedback.playFinishSound() }
+            }
+        }
     }
 
     private func scheduleHide(after delay: TimeInterval) {
@@ -182,7 +416,7 @@ final class ResultChip {
         service.cancel(job)
     }
 
-    private func undo() {
+    func undo() {
         guard state.display.canUndo else { return }
         do {
             try service.undo(job)
@@ -193,8 +427,25 @@ final class ResultChip {
         }
     }
 
-    private func dismiss() {
-        hud?.remove(self)
+    /// Fades, blurs and shrinks away, then leaves the column.
+    func dismiss() {
+        guard !isLeaving else { return }
+        isLeaving = true
+        hideWork?.cancel()
+        let t = time()
+        if t < playback.appearAt {
+            hud?.remove(self)
+            return
+        }
+        playback.leave(at: t)
+        hud?.wake()
+        let wait = playback.reduced ? ChipMotion.reducedFade : ChipMotion.exitDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.02) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.hud?.remove(self)
+            }
+        }
     }
 
     private func reveal() {
@@ -204,10 +455,12 @@ final class ResultChip {
     }
 }
 
-/// The chip's window: a clear, non-activating panel that floats over other apps.
+// MARK: - The window
+
+/// The stack's window: a clear, non-activating panel that floats over other apps.
 final class ChipPanel: NSPanel {
-    /// Room around the chip for its shadow.
-    static let margin: CGFloat = 10
+    /// Room around the chips for their shadow, the shake and the ripple.
+    static let margin: CGFloat = 30
 
     var onUndo: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -230,7 +483,7 @@ final class ChipPanel: NSPanel {
         animationBehavior = .none
     }
 
-    /// Set by a click on the chip. Without it AppKit would hand the chip key status
+    /// Set by a click on a chip. Without it AppKit would hand the chips key status
     /// when another Clover window closes.
     private var clicked = false
 
@@ -260,38 +513,6 @@ final class ChipPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) {
         onDismiss?()
     }
-}
-
-/// Holds the chip's SwiftUI view and reports the pointer coming and going.
-final class ChipContainerView: NSView {
-    var onHover: ((Bool) -> Void)?
-    private var tracking: NSTrackingArea?
-
-    init(content: ResultChipView) {
-        let size = ResultChipView.size
-        let m = ChipPanel.margin
-        super.init(frame: NSRect(x: 0, y: 0, width: size.width + m * 2, height: size.height + m * 2))
-        let hosting = FirstClickHostingView(rootView: content)
-        hosting.sizingOptions = []
-        hosting.frame = bounds
-        hosting.autoresizingMask = [.width, .height]
-        addSubview(hosting)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { onHover?(true) }
-    override func mouseExited(with event: NSEvent) { onHover?(false) }
 }
 
 /// A hosting view whose buttons work on the first click, without the panel being key.

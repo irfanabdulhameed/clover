@@ -10,17 +10,24 @@ final class HomeController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private lazy var dashboard = DashboardWindowController(model: model, bloom: bloom)
 
+    /// Where the menu bar icon is on screen, for a result chip that waits under it. nil until the icon exists.
+    static var statusIconFrame: () -> NSRect? = { nil }
+
     init(model: AppModel, bloom: BloomController) {
         self.model = model
         self.bloom = bloom
         super.init()
     }
 
-    /// Puts the icon in the menu bar. With `--render-home <folder>` or `--render-dashboard <folder>`
-    /// it draws pictures of the windows into the folder instead, and quits.
+    /// Puts the icon in the menu bar. With `--render-home <folder>`, `--render-dashboard <folder>` or
+    /// `--render-chip-frames <folder>` it draws pictures into the folder instead, and quits.
     func install() {
         if let folder = Self.argument(after: "--render-home") {
             Task { await HomeRender.renderHome(into: URL(fileURLWithPath: folder)); exit(0) }
+            return
+        }
+        if let folder = Self.argument(after: "--render-chip-frames") {
+            Task { await ChipRender.render(into: URL(fileURLWithPath: folder)); exit(0) }
             return
         }
         if let folder = Self.argument(after: "--render-dashboard") {
@@ -48,6 +55,7 @@ final class HomeController: NSObject, NSPopoverDelegate {
             button.addSubview(overlay)
         }
         statusItem = item
+        HomeController.statusIconFrame = { [weak item] in item?.button?.window?.frame }
     }
 
     /// Opens the Dashboard, for the menu and for other parts of the app.

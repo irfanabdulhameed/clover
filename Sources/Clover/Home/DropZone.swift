@@ -47,7 +47,11 @@ private struct DropZoneStyle: ButtonStyle {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         configuration.label
             .background(
-                shape.fill(targeted ? Color.accentColor.opacity(0.14) : Color.primary.opacity(configuration.isPressed ? 0.11 : hovered ? 0.07 : 0.04))
+                HomeGlassPlate(
+                    cornerRadius: 12,
+                    tint: targeted ? Color.accentColor.opacity(0.30) : nil,
+                    fallback: targeted ? Color.accentColor.opacity(0.14) : Color.primary.opacity(configuration.isPressed ? 0.11 : hovered ? 0.07 : 0.04),
+                    lift: targeted ? 0 : configuration.isPressed ? 0.08 : hovered ? 0.04 : 0)
             )
             .overlay(
                 shape.strokeBorder(

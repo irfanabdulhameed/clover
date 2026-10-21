@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 import CloverCore
 
-/// The six places in the Dashboard, in sidebar order.
+/// The places in the Dashboard, in sidebar order.
 enum DashboardSection: String, CaseIterable, Identifiable {
-    case leaves, quality, output, shortcuts, history, engines
+    case leaves, quality, output, shortcuts, feel, history, engines
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
         case .quality: "Quality"
         case .output: "Output"
         case .shortcuts: "Shortcuts"
+        case .feel: "Feel"
         case .history: "History"
         case .engines: "Engines"
         }
@@ -25,6 +26,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
         case .quality: "slider.horizontal.3"
         case .output: "folder"
         case .shortcuts: "keyboard"
+        case .feel: "hand.tap"
         case .history: "clock.arrow.circlepath"
         case .engines: "wrench.and.screwdriver"
         }
@@ -83,6 +85,10 @@ struct DashboardData {
     var triggerKey: Binding<TriggerKey>
     var holdToOpen: Binding<Bool>
     var hotkey: Binding<Hotkey?>
+    var motion: Binding<MotionPreference>
+    var haptics: Binding<Bool>
+    var completionSound: Binding<Bool>
+    var leafStyle: Binding<LeafStyle>
     var login: LoginState
     var items: [RecentItem]
     var engines: [EngineInfo]
@@ -119,6 +125,10 @@ struct DashboardRoot: View {
                 triggerKey: $settings.triggerKey,
                 holdToOpen: $settings.holdToOpen,
                 hotkey: $settings.hotkey,
+                motion: $settings.motion,
+                haptics: $settings.haptics,
+                completionSound: $settings.completionSound,
+                leafStyle: $settings.leafStyle,
                 login: LoginState(isEnabled: login.isEnabled, message: login.message,
                                   needsApproval: login.needsApproval, inApplications: login.isInApplications),
                 items: recents.items,
@@ -182,6 +192,9 @@ struct DashboardView: View {
         case .shortcuts:
             ShortcutsSection(triggerKey: data.triggerKey, holdToOpen: data.holdToOpen, hotkey: data.hotkey,
                              forceRecording: data.forced.recording, forceRejected: data.forced.rejected)
+        case .feel:
+            FeelSection(motion: data.motion, haptics: data.haptics, completionSound: data.completionSound,
+                        leafStyle: data.leafStyle)
         case .history:
             HistorySection(items: data.items, actions: actions, initialQuery: data.forced.query)
         case .engines:
