@@ -84,8 +84,8 @@ enum ChipRender {
         reducedFailed.end(.failed, at: 0.5)
 
         return [
-            Sequence(name: "1-entrance", playback: running, frames: [0.30, 0.38, 0.45, 0.55, 0.68].map { (ms($0), $0) }, kind: .running),
-            Sequence(name: "2-entrance-clamped", playback: offsetRing, frames: [0.38, 0.45, 0.55, 0.68].map { (ms($0), $0) }, kind: .running),
+            Sequence(name: "1-entrance", playback: running, frames: [-0.08, 0, 0.07, 0.17, 0.30].map { ChipMotion.ringAppearDelay + $0 }.map { (ms($0), $0) }, kind: .running),
+            Sequence(name: "2-entrance-clamped", playback: offsetRing, frames: [0, 0.07, 0.17, 0.30].map { ChipMotion.ringAppearDelay + $0 }.map { (ms($0), $0) }, kind: .running),
             Sequence(name: "3-entrance-no-clover", playback: born, frames: [0, 0.04, 0.08, 0.15, 0.4].map { (ms($0), $0) }, kind: .running),
             Sequence(name: "4-done", playback: done,
                      frames: [-0.017, 0, 0.09, 0.25, 0.5, 0.8].map { ("flip " + ($0 < 0 ? "-17 ms" : ms($0)), flip + $0) }),
@@ -211,10 +211,11 @@ enum ChipRender {
         check(grow.map(\.ringDiameter).adjacentPairs().allSatisfy { $0 >= $1 - 0.001 }, "the ring only shrinks, from 56 to 40")
         check(abs(grow[0].width - ChipMotion.dropRingDiameter) < 0.01 && abs(grow[0].ringDiameter - 56) < 0.01, "starts as the 56 pt ring")
         check(ringed.values(at: ringed.appearAt - 0.01).isHidden, "hidden before the clover has handed over")
-        check(!ringed.values(at: ringed.appearAt).isHidden, "there at 380 ms")
+        check(!ringed.values(at: ringed.appearAt).isHidden, "there when the clover hands over")
         check(grow.map { abs($0.offset.width) }.adjacentPairs().allSatisfy { $0 >= $1 - 0.001 }, "the chip only moves toward its place")
         let w140 = ringed.values(at: ringed.appearAt + 0.14).width
-        check(abs((w140 - 56) / (300 - 56) - 0.75) < 0.02, "75 % grown by 140 ms")
+        let startWidth = ChipMotion.dropRingDiameter, fullWidth = ChipMotion.chipSize.width
+        check(abs((w140 - startWidth) / (fullWidth - startWidth) - 0.75) < 0.02, "75 % grown by 140 ms")
 
         // Blur-born entrance.
         let bornPlay = ChipPlayback(reduced: false, ringStart: nil)
@@ -229,18 +230,22 @@ enum ChipRender {
         done.progress(0.5, at: 0.1)
         done.end(.done, at: 0.5)
         let flip = done.ending?.at ?? 0
-        check(abs(flip - max(0.5 + ChipMotion.ringClose, 0.38 + ChipMotion.grow)) < 0.0001, "done flips when the ring has closed")
+        check(abs(flip - max(0.5 + ChipMotion.ringClose, ChipMotion.ringAppearDelay + ChipMotion.grow)) < 0.0001, "done flips when the ring has closed")
         var fast = ChipPlayback(reduced: false, ringStart: .zero)
         fast.end(.done, at: 0.1)
-        check(abs((fast.ending?.at ?? 0) - 0.68) < 0.0001, "a job done before the chip shows waits for it to grow (680 ms)")
+        check(abs((fast.ending?.at ?? 0) - (ChipMotion.ringAppearDelay + ChipMotion.grow)) < 0.0001, "a job done before the chip shows waits for it to grow")
         check(done.values(at: flip - 0.001).showsRunning && !done.values(at: flip).showsRunning, "the picture flips in one frame")
         check(done.values(at: flip - 0.001).pop == 1 && abs(done.values(at: flip).pop - 1.08) < 0.0001, "pop starts at 108 %")
         let after = times(flip, flip + 1).map { done.values(at: $0) }
         check(after.map(\.pop).adjacentPairs().allSatisfy { $0 >= $1 - 0.0001 } && after.allSatisfy { $0.pop >= 1 }, "the pop settles to 100 % and never goes under")
         let rippling = after.filter { $0.ripple != nil }
-        check(!rippling.isEmpty && rippling.count <= Int(ChipMotion.rippleDuration * 240) + 2, "one ripple of 500 ms")
+        check(ChipMotion.rippleEnabled ? (!rippling.isEmpty && rippling.count <= Int(ChipMotion.rippleDuration * 240) + 2) : rippling.isEmpty,
+              "one ripple of 500 ms when ripples are on, none when off")
         check(after.last?.ripple == nil && after.last?.pop == 1, "nothing left moving after a second")
-        check(done.values(at: flip + 0.02).textOpacity == 0 && done.values(at: flip + 0.3).textOpacity == 1, "the words come after the flip")
+        check(ChipMotion.textAnimated
+              ? (done.values(at: flip + 0.02).textOpacity == 0 && done.values(at: flip + 0.3).textOpacity == 1)
+              : done.values(at: flip).textOpacity == 1,
+              "the words come with the flip (after it, when text is animated)")
         check(done.isSettled(at: flip + 1.2) && !done.isSettled(at: flip + 0.1), "the clock can stop after the ending")
 
         // Failed: the Mac's shake. Three swings, 8 pt, 300 ms, dying away.
@@ -256,7 +261,7 @@ enum ChipRender {
         var failed = ChipPlayback(reduced: false, ringStart: .zero)
         failed.end(.failed, at: 0.2)
         let failFlip = failed.ending?.at ?? 0
-        check(abs(failFlip - 0.68) < 0.0001, "a failure shows after the chip has grown")
+        check(abs(failFlip - (ChipMotion.ringAppearDelay + ChipMotion.grow)) < 0.0001, "a failure shows after the chip has grown")
         check(failed.values(at: failFlip + 0.07).offset.width != 0 && failed.values(at: failFlip + 0.4).offset.width == 0, "shakes, then is still")
         check(failed.values(at: failFlip + 0.07).ripple == nil, "a failure has no ripple")
 

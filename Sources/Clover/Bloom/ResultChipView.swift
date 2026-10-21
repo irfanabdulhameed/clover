@@ -72,6 +72,18 @@ struct JobSnapshot {
 
 /// What the chip says in each state.
 struct ChipDisplay: Equatable {
+    /// "Convert to JPG" while it runs: "Converting to JPG…".
+    static func inProgress(_ title: String) -> String {
+        let convert = "Convert to "
+        if title.hasPrefix(convert) { return "Converting to \(title.dropFirst(convert.count))…" }
+        switch title {
+        case "Merge": return "Merging…"
+        case "Extract": return "Extracting…"
+        case "Compress": return "Compressing…"
+        default: return title + "…"
+        }
+    }
+
     enum Kind: Equatable {
         case running, done, partial, failed, skipped, cancelled, undone
     }
@@ -103,7 +115,7 @@ struct ChipDisplay: Equatable {
         switch s.phase {
         case .running:
             kind = .running
-            title = s.title
+            title = ChipDisplay.inProgress(s.title)
             subtitle = s.total > 1 ? "\(s.finished) of \(s.total)" : (s.inputNames.first ?? "")
 
         case .done where !s.failures.isEmpty:
@@ -281,14 +293,22 @@ struct ResultChipView: View {
         let hue = BloomStyle.hue(d.family, scheme)
         switch d.kind {
         case .running:
-            // The ring the clover left at its hub, with the kind of file inside it.
+            // The ring the clover left at its hub. Until there is progress to show, the
+            // Mac's own spinner turns inside it; then the kind of file sits in the ring.
+            let progress = v.ringProgress ?? d.progress
             ZStack {
-                ChipRing(progress: v.ringProgress ?? d.progress, diameter: v.ringDiameter)
-                Image(systemName: BloomStyle.symbol(for: d.family))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(hue)
-                    .opacity(v.textOpacity)
-                    .blur(radius: v.textBlur)
+                ChipRing(progress: progress, diameter: v.ringDiameter)
+                if progress < 0.03 && !snapshot {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: BloomStyle.symbol(for: d.family))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(hue)
+                        .opacity(v.textOpacity)
+                        .blur(radius: v.textBlur)
+                }
             }
         case .done, .partial:
             ZStack(alignment: .bottomTrailing) {

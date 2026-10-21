@@ -212,9 +212,7 @@ struct BloomScene: View {
         }
     }
 
-    private var rippleColor: Color {
-        scheme == .dark ? Color.white : BloomStyle.cloverGlow(scheme)
-    }
+    private var rippleColor: Color { Color.white }
 
     private func title(of leaf: BloomModel.Leaf) -> String {
         switch leaf {
@@ -298,7 +296,7 @@ struct SlotView: View {
         ZStack(alignment: .topLeading) {
             switch fill {
             case .frosted: shape.fill(Color.white.opacity(dark ? 0.11 : 0.62))
-            case .lit: shape.fill(BloomStyle.cloverFill)
+            case .lit: shape.fill(BloomStyle.litFill(scheme)).shadow(color: BloomStyle.litShadow(scheme), radius: 6, y: 2)
             case .flash: shape.fill(Color.white)
             }
             shape.stroke(rim(lit: lit, dark: dark), lineWidth: 0.75)
@@ -308,7 +306,7 @@ struct SlotView: View {
                     p.addLine(to: CGPoint(x: b.x - bounds.minX, y: b.y - bounds.minY))
                 }
             }
-            .stroke(lit ? Color.white.opacity(0.35) : (dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07)),
+            .stroke(lit ? (dark ? Color.white.opacity(0.35) : Color.black.opacity(0.08)) : (dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07)),
                     style: StrokeStyle(lineWidth: 0.75, lineCap: .round))
             if fill != .flash {
                 SlotLabel(title: title, symbol: symbol, hue: hue, lit: lit, width: label.width)
@@ -375,18 +373,18 @@ struct SlotLabel: View {
             if let symbol {
                 Image(systemName: symbol)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(lit ? Color.white : hue)
+                    .foregroundStyle(lit ? BloomStyle.litInk(scheme) : hue)
                     .frame(height: BloomGeometry.labelIcon.height)
             }
             Text(title)
                 .font(Font(BloomStyle.leafFont(for: title, width: width)))
-                .foregroundStyle(lit ? Color.white : Color.primary)
+                .foregroundStyle(lit ? BloomStyle.litInk(scheme) : Color.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: width)
         }
         // A faint shadow keeps the white title crisp on green, and light titles on busy glass.
-        .shadow(color: .black.opacity(lit ? 0.22 : (scheme == .dark ? 0.25 : 0)), radius: 1, y: 0.5)
+        .shadow(color: .black.opacity(scheme == .dark ? 0.25 : 0), radius: 1, y: 0.5)
     }
 }
 
@@ -492,16 +490,18 @@ struct ChipView: View {
     var look = Look.still
     var pop: CGFloat = 1
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         ZStack {
-            if isLit { Capsule().fill(isFlash ? AnyShapeStyle(Color.white) : AnyShapeStyle(BloomStyle.cloverFill)) }
+            if isLit { Capsule().fill(isFlash ? Color.white : BloomStyle.litFill(scheme)) }
             HStack(spacing: 4) {
                 if isDefault {
-                    Circle().fill(isLit ? Color.white : hue).frame(width: 5, height: 5)
+                    Circle().fill(isLit ? BloomStyle.litInk(scheme) : hue).frame(width: 5, height: 5)
                 }
                 Text(title)
                     .font(Font(BloomStyle.chipFont))
-                    .foregroundStyle(isLit ? Color.white : Color.primary)
+                    .foregroundStyle(isLit ? BloomStyle.litInk(scheme) : Color.primary)
                     .lineLimit(1)
                     .fixedSize()
             }
@@ -521,13 +521,13 @@ struct ChipView: View {
     }
 }
 
-/// The progress ring the chosen slot becomes at the hub: a clover-green disc with a white
+/// The progress ring the chosen slot becomes at the hub: a dark glassy disc with a white
 /// ring track. The result chip starts as this same ring at `BloomAnchor`.
 struct CarryRing: View {
     var body: some View {
         let d = Motion.Drop.self
         ZStack {
-            Circle().fill(BloomStyle.cloverFill)
+            Circle().fill(Color.black.opacity(0.45))
                 .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
             Circle()
                 .stroke(Color.white.opacity(d.trackOpacity), lineWidth: d.ringWidth)
@@ -651,7 +651,7 @@ struct DropGlow: View {
         let bounds = BloomLayout.leafBounds(index, of: count)
         let shape = Path(SlotView.localPath(index, count))
         ZStack {
-            shape.fill(BloomStyle.cloverGlow(scheme).opacity(0.75))
+            shape.fill(Color.white.opacity(0.75))
                 .scaleEffect(1.2)
                 .blur(radius: 16)
             shape.fill(Color.white.opacity(0.9))
@@ -763,7 +763,7 @@ struct PillView: View {
             if isFlash {
                 Capsule().fill(Color.white)
             } else if isLit {
-                Capsule().fill(BloomStyle.cloverFill)
+                Capsule().fill(BloomStyle.litFill(scheme))
             } else {
                 Capsule().fill(dark ? Color.white.opacity(0.09) : Color.white.opacity(0.55))
                 Capsule().strokeBorder(dark ? Color.white.opacity(0.12) : Color.black.opacity(0.07), lineWidth: 0.75)
@@ -771,11 +771,11 @@ struct PillView: View {
             HStack(spacing: TrayLayout.iconGap) {
                 Image(systemName: symbol)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(isLit ? Color.white : hue)
+                    .foregroundStyle(isLit ? BloomStyle.litInk(scheme) : hue)
                     .frame(width: TrayLayout.iconWidth)
                 Text(title)
                     .font(Font(BloomStyle.pillFont))
-                    .foregroundStyle(isLit ? Color.white : Color.primary)
+                    .foregroundStyle(isLit ? BloomStyle.litInk(scheme) : Color.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }

@@ -307,6 +307,8 @@ final class ResultChip: Identifiable {
     private var hovering = false
     private var hideWhenLeft = false
     private var thumbnailFor: URL?
+    /// A finished result waiting for its picture before it shows.
+    private var pendingEnding: ChipDisplay.Kind?
     private var undoError: String?
     private var celebrated = false
     private(set) var isLeaving = false
@@ -314,6 +316,8 @@ final class ResultChip: Identifiable {
     let id: UUID
     var canUndo: Bool { state.display.canUndo }
 
+    /// The longest the loader waits for the result's picture.
+    static let pictureWait: TimeInterval = 1.0
     /// How long a finished chip stays.
     static let stay: TimeInterval = 5
     /// How long it stays after the pointer leaves it, once its time is up.
@@ -368,25 +372,47 @@ final class ResultChip: Identifiable {
             state.running = display
             playback.progress(display.progress, at: t)
         }
-        if let first = job.outputs.first, thumbnailFor != first, display.kind == .done || display.kind == .partial {
-            thumbnailFor = first
-            state.thumbnail = Thumbnails.icon(for: first)
-            Task { [weak self] in
-                let image = await Thumbnails.thumbnail(for: first, side: 72)
-                guard let self, let image, self.thumbnailFor == first else { return }
-                self.state.thumbnail = image
-            }
-        }
         if display.isFinished, display.kind != lastKind {
-            // Each new ending (done, then undone) gets its full time on screen.
-            let firstEnding = playback.ending == nil
-            playback.end(display.kind, at: t)
-            let flip = max((playback.ending?.at ?? t) - t, 0)
-            scheduleHide(after: flip + ResultChip.stay)
-            if firstEnding { scheduleFinish(after: flip, kind: display.kind) }
+            let kind = display.kind
+            if (kind == .done || kind == .partial), playback.ending == nil, let first = job.outputs.first {
+                // Keep the loader until the result's picture is ready (at most a second),
+                // then show the whole result at once.
+                thumbnailFor = first
+                pendingEnding = kind
+                Task { [weak self] in
+                    let image = await Thumbnails.thumbnail(for: first, side: 72)
+                    guard let self, self.thumbnailFor == first else { return }
+                    if let image { self.state.thumbnail = image }
+                    self.endWhenReady()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + ResultChip.pictureWait) { [weak self] in
+                    MainActor.assumeIsolated { self?.endWhenReady() }
+                }
+            } else {
+                end(kind)
+            }
         }
         lastKind = display.kind
         hud?.wake()
+    }
+
+    /// Shows the waiting result, once: when its picture has loaded or the wait is over.
+    private func endWhenReady() {
+        guard let kind = pendingEnding else { return }
+        pendingEnding = nil
+        if state.thumbnail == nil, let first = thumbnailFor { state.thumbnail = Thumbnails.icon(for: first) }
+        end(kind)
+        hud?.wake()
+    }
+
+    private func end(_ kind: ChipDisplay.Kind) {
+        let t = time()
+        // Each new ending (done, then undone) gets its full time on screen.
+        let firstEnding = playback.ending == nil
+        playback.end(kind, at: t)
+        let flip = max((playback.ending?.at ?? t) - t, 0)
+        scheduleHide(after: flip + ResultChip.stay)
+        if firstEnding { scheduleFinish(after: flip, kind: kind) }
     }
 
     /// The tap and the sound come with the flip, once per job whatever its size.

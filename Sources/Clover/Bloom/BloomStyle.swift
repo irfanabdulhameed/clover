@@ -82,6 +82,20 @@ enum BloomStyle {
     static var cloverFill: LinearGradient {
         LinearGradient(colors: [cloverTop, cloverBottom], startPoint: .top, endPoint: .bottom)
     }
+    /// A hovered slot, chip or pill: brighter glass, no colour. (Irfan found the solid green
+    /// fill loud, 21 Oct 2026.)
+    static func litFill(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.30) : Color.white.opacity(0.96)
+    }
+    /// Text and icons on a lit slot, chip or pill.
+    static func litInk(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white : Color.black.opacity(0.88)
+    }
+    /// The soft lift under a lit slot.
+    static func litShadow(_ scheme: ColorScheme) -> Color {
+        Color.black.opacity(scheme == .dark ? 0.30 : 0.12)
+    }
+
     /// The glow and ripple around a lit slot.
     static func cloverGlow(_ scheme: ColorScheme) -> Color { rgb(scheme == .dark ? 0x3FD27F : 0x2DB868) }
     /// The disc's light tint with `LeafStyle.clover`.

@@ -30,6 +30,9 @@ enum ChipMotion {
     static let bornBlur: CGFloat = 12
     static let bornScale: CGFloat = 1.10
     /// The words are born a little after the shape, blurred and large, and sharpen.
+    /// Words fading in on a delay left the chip empty at first. Off: the words are there
+    /// from the first frame, and the result shows all at once when it is ready.
+    static let textAnimated = false
     static let textStart = 0.10
     static let textDuration = 0.20
     static let textBlur: CGFloat = 6
@@ -260,6 +263,12 @@ struct ChipPlayback {
         var wordsBlur = 0.0
         var wordsScale = 1.0
         func born(_ since: Double) {
+            guard ChipMotion.textAnimated else {
+                words = 1
+                wordsBlur = 0
+                wordsScale = 0
+                return
+            }
             let e = ChipMotion.out(since, over: ChipMotion.textDuration)
             words = ChipMotion.out(since, over: ChipMotion.textDuration * 0.6)
             wordsBlur = (1 - e)
@@ -275,7 +284,7 @@ struct ChipPlayback {
             v.ringDiameter = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.slot, e)
             v.cornerRadius = ChipMotion.lerp(28, 16, e)
             born(u - ChipMotion.textStart)
-            if u < ChipMotion.textStart { words = 0 }
+            if ChipMotion.textAnimated, u < ChipMotion.textStart { words = 0 }
         } else {
             let e = ChipMotion.out(u, over: ChipMotion.bornDuration)
             v.opacity = ChipMotion.out(u, over: ChipMotion.bornDuration * 0.4)
@@ -283,7 +292,7 @@ struct ChipPlayback {
             v.scale = 1 + (ChipMotion.bornScale - 1) * CGFloat(1 - e)
             v.cornerRadius = 16
             born(u - 0.06)
-            if u < 0.06 { words = 0 }
+            if ChipMotion.textAnimated, u < 0.06 { words = 0 }
         }
 
         v.controlsOpacity = words
@@ -301,7 +310,7 @@ struct ChipPlayback {
                 v.pop = ChipMotion.pop(since)
                 v.offset.width += ChipMotion.shake(since)
                 born(since - ChipMotion.failureTextDelay)
-                if since < ChipMotion.failureTextDelay { words = 0 }
+                if ChipMotion.textAnimated, since < ChipMotion.failureTextDelay { words = 0 }
             default:
                 if reduced {
                     words = min(since / ChipMotion.reducedFade, 1)
@@ -310,7 +319,7 @@ struct ChipPlayback {
                 } else {
                     v.pop = ChipMotion.pop(since)
                     born(since - ChipMotion.resultTextDelay)
-                    if since < ChipMotion.resultTextDelay { words = 0 }
+                    if ChipMotion.textAnimated, since < ChipMotion.resultTextDelay { words = 0 }
                     if ChipMotion.rippleEnabled, ending.kind == .done, since < ChipMotion.rippleDuration {
                         v.ripple = since / ChipMotion.rippleDuration
                     }
