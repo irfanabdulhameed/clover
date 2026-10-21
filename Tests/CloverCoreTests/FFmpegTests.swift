@@ -21,9 +21,11 @@ private func audio(_ codec: String, rate: Int = 44_100, channels: Int = 2, bits:
 }
 
 private func plan(to format: Format, _ quality: String = "original", media: FFmpegMedia,
-                  encoders: Set<String> = allEncoders, hardware: Bool = true) throws -> FFmpegPlan {
+                  encoders: Set<String> = allEncoders, hardware: Bool = true,
+                  settings: ConversionSettings = ConversionSettings()) throws -> FFmpegPlan {
     try FFmpegPlan.make(input: input, output: output.deletingPathExtension().appendingPathExtension(format.fileExtension),
-                        to: format, quality: quality, media: media, encoders: encoders, hardwareQuality: hardware)
+                        to: format, quality: quality, media: media, encoders: encoders, settings: settings,
+                        hardwareQuality: hardware)
 }
 
 /// The value after `key` in an argument list.
@@ -104,7 +106,7 @@ struct FFmpegPlanTests {
         let a = normal.steps[0].arguments
         #expect(value(after: "-q:v", in: a) == "55")
         #expect(value(after: "-pix_fmt", in: a) == "yuv420p" && value(after: "-tag:v", in: a) == "avc1")
-        #expect(value(after: "-b:a", in: a) == "160k")
+        #expect(value(after: "-b:a", in: a) == "192k")
         let software = normal.steps[0].fallbacks.last!
         #expect(value(after: "-c:v", in: software) == "libx264" && value(after: "-crf", in: software) == "20")
         #expect(value(after: "-preset", in: software) == "medium" && value(after: "-c:a", in: software) == "aac")
@@ -175,7 +177,7 @@ struct FFmpegPlanTests {
         func arguments(_ format: Format, _ quality: String, _ encoders: Set<String> = allEncoders) throws -> [String] {
             try plan(to: format, quality, media: FFmpegMedia(duration: 3, audio: audio("flac")), encoders: encoders).steps[0].arguments
         }
-        #expect([("best", "0"), ("balanced", "2"), ("small", "5")].allSatisfy { FFmpegPlan.mp3Level(for: $0.0) == $0.1 })
+        #expect([("best", "0"), ("balanced", "2"), ("small", "5")].allSatisfy { FFmpegPlan.mp3Quality(for: $0.0) == ["-q:a", $0.1] })
         #expect(value(after: "-q:a", in: try arguments(Formats.mp3, "best")) == "0")
         #expect(value(after: "-b:a", in: try arguments(Formats.m4a, "best")) == "256k")
         #expect(value(after: "-b:a", in: try arguments(Formats.m4a, "balanced")) == "192k")
@@ -229,6 +231,119 @@ struct FFmpegPlanTests {
         let args = try plan(to: Formats.mp3, media: media).steps[0].arguments
         #expect(args.contains("0:a:0?") && !args.contains("0:v:0?") && !args.contains("-c:v"))
         #expect(args.contains("-map_metadata"))
+    }
+
+    // MARK: Settings
+
+    @Test func videoQualityMapping() {
+        func q(_ percent: Double, small: Bool = false) -> [Int] {
+            let v = FFmpegPlan.VideoEncoderQuality(percent: percent, small: small)
+            return [v.videoToolbox, v.x264, v.vp9]
+        }
+        // The default 60% is what Clover has always used.
+        #expect(q(60) == [55, 20, 32])
+        #expect(q(60, small: true) == [35, 28, 40])
+        // Extremes, and values outside 0...100 stop at them.
+        #expect(q(0) == [10, 38, 52] && q(-50) == q(0))
+        #expect(q(100) == [100, 12, 15] && q(250) == q(100))
+        #expect(q(0, small: true) == [1, 46, 60])
+        // Higher percent is always better: -q:v up, crf down.
+        var last = q(0)
+        for percent in stride(from: 5.0, through: 100, by: 5) {
+            let now = q(percent)
+            #expect(now[0] >= last[0] && now[1] <= last[1] && now[2] <= last[2])
+            last = now
+        }
+    }
+
+    @Test func videoQualityReachesTheEncoders() throws {
+        let media = FFmpegMedia(duration: 3, video: video("vp9"), audio: audio("opus"))
+        var settings = ConversionSettings()
+        settings.videoQuality = 100
+        let mp4 = try plan(to: Formats.mp4, media: media, settings: settings).steps[0]
+        #expect(value(after: "-q:v", in: mp4.arguments) == "100")
+        #expect(value(after: "-crf", in: mp4.fallbacks.last!) == "12")
+        let webm = try plan(to: Formats.webm, "720p", media: media, settings: settings).steps[0].arguments
+        #expect(value(after: "-crf", in: webm) == "15")
+        settings.videoQuality = 0
+        let small = try plan(to: Formats.mp4, "small", media: media, settings: settings).steps[0]
+        #expect(value(after: "-q:v", in: small.arguments) == "1")
+        #expect(value(after: "-crf", in: small.fallbacks.last!) == "46")
+    }
+
+    @Test func smallVideoHeightFollowsTheSettings() throws {
+        var settings = ConversionSettings()
+        settings.smallVideoHeight = 360
+        #expect(FFmpegPlan.heightLimit(for: "small", settings: settings) == 360)
+        #expect(FFmpegPlan.heightLimit(for: "720p", settings: settings) == 720)
+        let media = FFmpegMedia(duration: 3, video: video("h264"), audio: audio("aac"))
+        let args = try plan(to: Formats.mp4, "small", media: media, settings: settings).steps[0].arguments
+        #expect(args.contains { $0.hasPrefix("scale=") && $0.contains("min(360,iw)") })
+    }
+
+    @Test func gifWidthsFollowTheSettings() throws {
+        var settings = ConversionSettings()
+        settings.gifWidth = Levels(best: 1000, balanced: 600, small: 200)
+        #expect([("large", 1000), ("medium", 600), ("small", 200)].allSatisfy { FFmpegPlan.gifWidth(for: $0.0, settings: settings) == $0.1 })
+        let media = FFmpegMedia(duration: 3, video: video("h264"), audio: audio("aac"))
+        let p = try plan(to: Formats.gif, "small", media: media, settings: settings)
+        #expect(p.steps[0].arguments.contains { $0.contains("palettegen") && $0.contains("min(200,iw)") })
+    }
+
+    @Test func audioBitratesMapToEachEncoder() {
+        let defaults = ConversionSettings()
+        // AAC takes the number as it is.
+        #expect(["best", "balanced", "small"].map { FFmpegPlan.m4aBitrate(for: $0) } == ["256k", "192k", "128k"])
+        #expect(FFmpegPlan.aacBitrate(kbps: 500) == "320k" && FFmpegPlan.aacBitrate(kbps: 8) == "32k")
+        // Opus: half the AAC rate plus 32, which keeps the old 160 / 128 / 96.
+        #expect(["best", "balanced", "small"].map { FFmpegPlan.opusBitrate(for: $0) } == ["160k", "128k", "96k"])
+        #expect(FFmpegPlan.opusKbps(matchingAAC: 320) == 192 && FFmpegPlan.opusKbps(matchingAAC: 0) == 32)
+        // Vorbis: one quality step per 32 kbit/s, giving the old 6 / 4 / 2.
+        #expect(["best", "balanced", "small"].map { FFmpegPlan.vorbisLevel(for: $0) } == ["6", "4", "2"])
+        #expect(FFmpegPlan.vorbisLevel(for: "best", settings: { var s = defaults; s.audioBitrate = Levels(best: 320, balanced: 192, small: 112); return s }()) == "8")
+        // MP3: nearest LAME VBR level (V0 245, V2 190, V5 130 ... V9 65) up to 256, then constant bitrate.
+        #expect(FFmpegPlan.mp3Quality(kbps: 256) == ["-q:a", "0"])
+        #expect(FFmpegPlan.mp3Quality(kbps: 192) == ["-q:a", "2"])
+        #expect(FFmpegPlan.mp3Quality(kbps: 128) == ["-q:a", "5"])
+        #expect(FFmpegPlan.mp3Quality(kbps: 160) == ["-q:a", "4"])
+        #expect(FFmpegPlan.mp3Quality(kbps: 64) == ["-q:a", "9"] && FFmpegPlan.mp3Quality(kbps: 8) == ["-q:a", "9"])
+        #expect(FFmpegPlan.mp3Quality(kbps: 320) == ["-b:a", "320k"] && FFmpegPlan.mp3Quality(kbps: 999) == ["-b:a", "320k"])
+    }
+
+    @Test func audioBitratesReachTheCommands() throws {
+        var settings = ConversionSettings()
+        settings.audioBitrate = Levels(best: 320, balanced: 160, small: 64)
+        func arguments(_ format: Format, _ quality: String, _ encoders: Set<String> = allEncoders) throws -> [String] {
+            try plan(to: format, quality, media: FFmpegMedia(duration: 3, audio: audio("flac")), encoders: encoders, settings: settings).steps[0].arguments
+        }
+        #expect(value(after: "-b:a", in: try arguments(Formats.m4a, "best")) == "320k")
+        #expect(value(after: "-b:a", in: try arguments(Formats.m4a, "small")) == "64k")
+        // Lossless stays ALAC whatever the bitrates are.
+        #expect(value(after: "-c:a", in: try arguments(Formats.m4a, "lossless")) == "alac")
+        #expect(!(try arguments(Formats.m4a, "lossless")).contains("-b:a"))
+        #expect(value(after: "-b:a", in: try arguments(Formats.mp3, "best")) == "320k")
+        #expect(value(after: "-q:a", in: try arguments(Formats.mp3, "balanced")) == "4")
+        #expect(value(after: "-b:a", in: try arguments(Formats.opus, "best")) == "192k")
+        #expect(value(after: "-b:a", in: try arguments(Formats.opus, "small")) == "64k")
+        #expect(value(after: "-b:a", in: try arguments(Formats.ogg, "balanced")) == "112k")          // Opus in Ogg
+        #expect(value(after: "-q:a", in: try arguments(Formats.ogg, "balanced", allEncoders.union(["libvorbis"]))) == "3")
+    }
+
+    @Test func audioInsideVideoUsesTheBalancedRate() throws {
+        let media = FFmpegMedia(duration: 3, video: video("vp9"), audio: audio("opus"))
+        func rates(_ settings: ConversionSettings, _ quality: String = "720p") throws -> [String?] {
+            [value(after: "-b:a", in: try plan(to: Formats.mp4, quality, media: media, settings: settings).steps[0].arguments),
+             value(after: "-b:a", in: try plan(to: Formats.webm, quality, media: media, settings: settings).steps[0].arguments)]
+        }
+        #expect(try rates(ConversionSettings()) == ["192k", "128k"])
+        #expect(try rates(ConversionSettings(), "small") == ["128k", "96k"])
+        var settings = ConversionSettings()
+        settings.audioBitrate = Levels(best: 320, balanced: 256, small: 224)
+        // Never more than 192.
+        #expect(try rates(settings) == ["192k", "128k"])
+        #expect(try rates(settings, "small") == ["192k", "128k"])
+        settings.audioBitrate = Levels(best: 256, balanced: 96, small: 64)
+        #expect(try rates(settings) == ["96k", "80k"])
     }
 
     // MARK: Missing streams

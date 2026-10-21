@@ -102,7 +102,7 @@ public struct PDFConverter: Converter {
         let count = document.pageCount
         let folder = count > 1 ? directory.appendingPathComponent(baseName, isDirectory: true) : directory
         if count > 1 { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
-        let quality = ImageKit.quality(context.quality)
+        let quality = ImageKit.quality(context.quality, settings: context.settings)
         for index in 0..<count {
             try Task.checkCancellation()
             try autoreleasepool {
