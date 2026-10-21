@@ -13,7 +13,7 @@ enum BloomDebug {
     /// Returns true when a debug command was found and is running.
     static func run(_ arguments: [String], model: AppModel) -> Bool {
         let args = Array(arguments.dropFirst())
-        guard let command = args.first, command.hasPrefix("--render-") || command == "--bloom-selftest" else { return false }
+        guard let command = args.first, ["--render-bloom", "--render-hud", "--bloom-selftest"].contains(command) else { return false }
         Task { @MainActor in
             let code: Int32
             switch command {
