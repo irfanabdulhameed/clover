@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 import CloverCore
 
-/// The bloom: a hub with the files, petals around it and chips beyond the open petal.
-/// Positions come from `BloomLayout`, so what is drawn is exactly what is hit-tested.
-/// The view takes no clicks itself; `BloomInteractionView` above it does.
+/// The clover: a hub with the files, heart-shaped leaves around it and chips beyond the
+/// open leaf. Shapes and positions come from `BloomLayout`, so what is drawn is exactly
+/// what is hit-tested. The view takes no clicks itself; `BloomInteractionView` above it does.
 struct BloomView: View {
     @ObservedObject var model: BloomModel
     @Environment(\.colorScheme) private var scheme
@@ -14,18 +14,25 @@ struct BloomView: View {
     private let side = BloomGeometry.panelSize
 
     var body: some View {
-        let center = side / 2
-        let lit = model.litSlot
+        let center = CGPoint(x: side / 2, y: side / 2)
+        let lit = model.litLeaf
+        let count = model.leafCount
         ZStack {
             if !snapshot {
-                // Nearly invisible, so the window takes drags and clicks across the bloom.
+                // Nearly invisible, so the window takes drags and clicks across the clover.
                 Circle().fill(Color.black.opacity(0.012)).frame(width: side - 8, height: side - 8)
             }
-            ForEach(model.items, id: \.slot) { item in
-                petal(item, lit: lit)
-                    .position(offset(BloomLayout.petalCenter(item.slot), center))
+            // The lit leaf's glow, under every leaf, so it shows only around it.
+            if let lit, lit < count {
+                LeafGlow(index: lit, count: count, hue: hue(of: lit))
+                    .position(offset(BloomLayout.leafBounds(lit, of: count).mid, center))
             }
-            if let open = model.openSlot, let target = model.target(at: open) {
+            ForEach(Array(model.leaves.enumerated()), id: \.offset) { index, leaf in
+                LeafView(index: index, count: count, title: title(of: leaf), symbol: symbol(of: leaf),
+                         hue: hue(of: index), state: state(of: index, lit: lit))
+                    .position(offset(BloomLayout.leafBounds(index, of: count).mid, center))
+            }
+            if let open = model.openLeaf, let target = model.target(at: open) {
                 let frames = model.chipFrames(for: open)
                 ForEach(Array(zip(target.options.indices, frames)), id: \.0) { index, frame in
                     ChipView(title: target.options[index].title,
@@ -34,84 +41,130 @@ struct BloomView: View {
                              isFocused: model.usingKeyboard && model.focusChip == index,
                              hue: BloomStyle.hue(target.format.family, scheme))
                         .frame(width: frame.width, height: frame.height)
-                        .position(offset(CGPoint(x: frame.midX, y: frame.midY), center))
+                        .position(offset(frame.mid, center))
                 }
             }
             HubView(pictures: model.pictures, count: model.files.count, hasFiles: model.hasFiles, mixed: model.isMixed)
-                .position(x: center, y: center)
+                .position(center)
             if !model.hint.isEmpty {
-                HintLabel(text: model.hint, maxWidth: model.targets.isEmpty ? 220 : G.hintMaxWidth)
-                    .position(x: center, y: center + G.hintCenterY)
+                HintLabel(text: model.hint, maxWidth: model.arrangement.all.isEmpty ? 220 : G.hintMaxWidth)
+                    .position(x: center.x, y: center.y + G.hintCenterY)
             }
         }
         .frame(width: side, height: side)
         .allowsHitTesting(false)
     }
 
-    @ViewBuilder
-    private func petal(_ item: BloomPlan.Item, lit: Int?) -> some View {
-        let state: PetalView.State = {
-            if lit == item.slot { return model.usingKeyboard ? .focused : .lit }
-            return lit == nil ? .resting : .dimmed
-        }()
-        switch item.kind {
-        case .more:
-            PetalView(title: "More", symbol: "ellipsis", hue: Color.secondary, state: state)
-        case .target:
-            if let target = model.target(at: item.slot) {
-                PetalView(title: target.title, symbol: BloomStyle.symbol(for: target),
-                          hue: BloomStyle.hue(target.format.family, scheme), state: state)
-            }
+    private func state(of index: Int, lit: Int?) -> LeafView.State {
+        // The ring sits on the leaf until one of its chips takes the focus.
+        if lit == index { return model.focusedLeaf == index && model.focusChip == nil ? .focused : .lit }
+        return lit == nil ? .resting : .dimmed
+    }
+
+    private func title(of leaf: BloomModel.Leaf) -> String {
+        switch leaf {
+        case .target(let target): target.title
+        case .more: "More"
         }
     }
 
-    private func offset(_ p: CGPoint, _ center: CGFloat) -> CGPoint {
-        CGPoint(x: center + p.x, y: center + p.y)
+    private func symbol(of leaf: BloomModel.Leaf) -> String {
+        switch leaf {
+        case .target(let target): BloomStyle.symbol(for: target)
+        case .more: "ellipsis"
+        }
+    }
+
+    private func hue(of index: Int) -> Color {
+        guard let target = model.target(at: index) else { return Color.secondary }
+        return BloomStyle.hue(target.format.family, scheme)
+    }
+
+    private func offset(_ p: CGPoint, _ center: CGPoint) -> CGPoint {
+        CGPoint(x: center.x + p.x, y: center.y + p.y)
     }
 }
 
-/// One glass bubble with a format name and a small icon in its family's hue.
-struct PetalView: View {
+extension CGRect {
+    var mid: CGPoint { CGPoint(x: midX, y: midY) }
+}
+
+/// One heart-shaped glass leaf, its point towards the hub, with an upright icon and title
+/// in its broad part. Its frame is the leaf's bounding box.
+struct LeafView: View {
     enum State { case resting, lit, focused, dimmed }
 
+    let index: Int
+    let count: Int
     let title: String
     let symbol: String
     let hue: Color
     let state: State
 
-    private typealias G = BloomGeometry
-
     var body: some View {
+        let bounds = BloomLayout.leafBounds(index, of: count)
+        let key = "leaf \(index) of \(count)"
+        let local = LeafView.localPath(index, count)
+        let label = BloomLayout.labelBox(index, of: count)
         let isLit = state == .lit || state == .focused
-        let size = isLit ? G.litPetalSize : G.petalSize
-        ZStack {
-            if isLit {
-                // A soft, still glow in the family's hue.
-                Circle().fill(hue.opacity(0.42))
-                    .frame(width: size + 10, height: size + 10)
-                    .blur(radius: 9)
-            }
-            Glass(cornerRadius: size / 2, tint: isLit ? hue.opacity(0.16) : nil, bright: isLit)
-                .frame(width: size, height: size)
-            VStack(spacing: 3) {
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(hue)
-                    .frame(height: 15)
-                Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(maxWidth: size - 6)
-            }
+        ZStack(alignment: .topLeading) {
+            PathGlass(path: local, key: key, tint: isLit ? hue.opacity(0.16) : nil, bright: isLit)
+            LeafLabel(title: title, symbol: symbol, hue: hue, width: label.width)
+                .frame(width: label.width, height: label.height)
+                .offset(x: label.minX - bounds.minX, y: label.minY - bounds.minY)
             if state == .focused {
-                Circle().strokeBorder(Color.accentColor, lineWidth: 2)
-                    .frame(width: size + 8, height: size + 8)
+                let ring = PathOutset.outset(local, by: 3, key: key)
+                Path(ring).stroke(Color.accentColor, lineWidth: 2)
             }
         }
-        .frame(width: G.litPetalSize + 12, height: G.litPetalSize + 12)
+        .frame(width: bounds.width, height: bounds.height, alignment: .topLeading)
         .opacity(state == .dimmed ? 0.5 : 1)
+    }
+
+    /// The leaf's outline moved so its bounding box starts at the origin.
+    static func localPath(_ index: Int, _ count: Int) -> CGPath {
+        let bounds = BloomLayout.leafBounds(index, of: count)
+        var shift = CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY)
+        let path = BloomLayout.leafPath(index, of: count)
+        return path.copy(using: &shift) ?? path
+    }
+}
+
+/// The soft, still glow in a family's hue around a lit leaf.
+struct LeafGlow: View {
+    let index: Int
+    let count: Int
+    let hue: Color
+
+    var body: some View {
+        let bounds = BloomLayout.leafBounds(index, of: count)
+        Path(LeafView.localPath(index, count))
+            .fill(hue.opacity(0.42))
+            .frame(width: bounds.width, height: bounds.height)
+            .blur(radius: 9)
+    }
+}
+
+/// A leaf's icon over its title, both upright.
+struct LeafLabel: View {
+    let title: String
+    let symbol: String
+    let hue: Color
+    let width: CGFloat
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(hue)
+                .frame(height: 16)
+            Text(title)
+                .font(Font(BloomStyle.leafFont))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: width)
+        }
     }
 }
 
@@ -219,5 +272,86 @@ struct HintLabel: View {
             .padding(.horizontal, 8)
             .frame(width: width, height: BloomGeometry.hintHeight)
             .background(Glass(cornerRadius: BloomGeometry.hintHeight / 2, shadow: false))
+    }
+}
+
+// MARK: - More tray
+
+/// The More tray: a glass panel of pills, one per target that isn't on a leaf, with the
+/// hovered pill's chips just under it. Drawn in its own window, `TrayLayout.windowMargin`
+/// in from the window's edges.
+struct TrayView: View {
+    @ObservedObject var model: BloomModel
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let m = TrayLayout.windowMargin
+        let size = model.traySize
+        let frames = model.pillFrames
+        ZStack(alignment: .topLeading) {
+            Glass(cornerRadius: TrayLayout.cornerRadius, bright: true)
+                .frame(width: size.width, height: size.height)
+            ForEach(Array(model.arrangement.more.enumerated()), id: \.offset) { index, target in
+                if frames.indices.contains(index) {
+                    PillView(title: target.title, symbol: BloomStyle.symbol(for: target),
+                             hue: BloomStyle.hue(target.format.family, scheme),
+                             isLit: model.litPill == index, isFocused: model.focusedPill == index && model.focusChip == nil)
+                        .frame(width: frames[index].width, height: frames[index].height)
+                        .offset(x: frames[index].minX, y: frames[index].minY)
+                }
+            }
+            if let open = model.openPill, let target = model.pillTarget(open) {
+                let chips = model.pillChipFrames(for: open)
+                ForEach(Array(zip(target.options.indices, chips)), id: \.0) { index, frame in
+                    ChipView(title: target.options[index].title,
+                             isDefault: target.options[index].id == target.defaultOption?.id,
+                             isLit: model.litChip == index,
+                             isFocused: model.usingKeyboard && model.focusChip == index,
+                             hue: BloomStyle.hue(target.format.family, scheme))
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(x: frame.minX, y: frame.minY)
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height + TrayLayout.overhang, alignment: .topLeading)
+        .padding(m)
+        .allowsHitTesting(false)
+    }
+}
+
+/// One target in the More tray: an icon in its family's hue and its title.
+struct PillView: View {
+    let title: String
+    let symbol: String
+    let hue: Color
+    let isLit: Bool
+    let isFocused: Bool
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let lit = isLit || isFocused
+        let dark = scheme == .dark
+        ZStack {
+            Capsule().fill(dark ? Color.white.opacity(0.07) : Color.white.opacity(0.45))
+            if lit { Capsule().fill(hue.opacity(dark ? 0.26 : 0.18)) }
+            Capsule().strokeBorder(dark ? Color.white.opacity(lit ? 0.30 : 0.12) : Color.black.opacity(lit ? 0.14 : 0.07),
+                                   lineWidth: 0.75)
+            HStack(spacing: TrayLayout.iconGap) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(hue)
+                    .frame(width: TrayLayout.iconWidth)
+                Text(title)
+                    .font(Font(BloomStyle.pillFont))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(.horizontal, TrayLayout.pillPadding)
+            if isFocused {
+                Capsule().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3)
+            }
+        }
     }
 }

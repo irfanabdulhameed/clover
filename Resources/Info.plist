@@ -24,6 +24,8 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Clover reads which files are selected in Finder, so it can convert them when you press its shortcut.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Irfan Abdul Hameed</string>
 	<key>NSServices</key>

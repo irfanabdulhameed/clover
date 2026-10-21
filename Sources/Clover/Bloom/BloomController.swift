@@ -1,26 +1,41 @@
 import AppKit
+import Combine
 import SwiftUI
 import CloverCore
 
-/// Watches for a file drag with the trigger key held, and shows the bloom at the pointer.
+/// Opens the clover at the pointer, three ways:
 ///
-/// No permission is needed: mouse events are watched with global monitors, the trigger
-/// key is read from `NSEvent.modifierFlags`, and a file drag is told apart by the drag
-/// pasteboard's change count and types. Its contents are read only by the bloom's own
-/// window, once the drag is over it.
+/// - Drag files and hold the trigger key.
+/// - Hold still on a file in Finder and press the trigger key. Moving then starts
+///   Finder's own drag onto the clover; letting go without moving leaves it open to click.
+/// - Press the global shortcut while Finder is in front: the clover opens for Finder's
+///   selection, to click.
+///
+/// Dragging needs no permission: mouse events are watched with global monitors, the
+/// trigger key is read from `NSEvent.modifierFlags`, and a file drag is told apart by
+/// the drag pasteboard's change count and types. Its contents are read only by the
+/// clover's own window, once the drag is over it. The other two ways read Finder's
+/// selection with AppleScript, which macOS asks the user to allow once.
 @MainActor
 final class BloomController: BloomInteractionDelegate {
     private let model: AppModel
     private let bloom = BloomModel()
     private var panel: BloomPanel?
+    private var trayPanel: TrayPanel?
     private var monitors: [Any] = []
     private var drag = DragState.idle
     private var ticker: Timer?
     private var pendingHide: DispatchWorkItem?
-    /// Set while the bloom is on screen.
+    /// Set while the clover is on screen.
     private var shownMode: BloomModel.Mode?
-    /// The bloom's centre on screen.
+    /// The clover's centre on screen.
     private var center = NSPoint.zero
+    /// Opened by a hold in Finder: letting go without a drag turns it to click mode.
+    private var openedByHold = false
+    private var hold: HoldWatch?
+    private var holdTimer: Timer?
+    private let hotkey = BloomHotkey()
+    private var hotkeyObserver: AnyCancellable?
 
     private enum DragState: Equatable {
         case idle
@@ -34,11 +49,17 @@ final class BloomController: BloomInteractionDelegate {
 
     init(model: AppModel) { self.model = model }
 
-    /// Starts watching drags.
+    /// Starts watching drags and holds, and registers the shortcut.
     func start() {
         if BloomDebug.run(CommandLine.arguments, model: model) { return }
         makePanel()
         guard monitors.isEmpty else { return }
+        // Leaf outlines and label boxes are measured once, now, not on the first drag.
+        DispatchQueue.main.async {
+            for count in 1...BloomGeometry.maxLeaves {
+                for index in 0..<count { _ = BloomLayout.labelBox(index, of: count) }
+            }
+        }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp], handler: { [weak self] event in
             MainActor.assumeIsolated { self?.handleGlobal(event) }
         }) {
@@ -50,16 +71,20 @@ final class BloomController: BloomInteractionDelegate {
         }) {
             monitors.append(local)
         }
+        hotkey.onPress = { [weak self] in self?.hotkeyPressed() }
+        hotkeyObserver = model.settings.$hotkey
+            .removeDuplicates()
+            .sink { [weak self] key in MainActor.assumeIsolated { self?.hotkey.register(key) } }
     }
 
-    /// Opens the bloom for files that aren't being dragged (Home drop zone, Finder service).
-    /// The user then clicks a petal. `point` is in screen coordinates; nil means the
-    /// middle of the screen with the pointer.
+    /// Opens the clover for files that aren't being dragged (Home drop zone, Finder
+    /// service, the shortcut). The user then clicks a leaf. `point` is in screen
+    /// coordinates; nil means the middle of the screen with the pointer.
     func present(files: [URL], at point: NSPoint?) {
         guard !files.isEmpty else { return }
         makePanel()
         bloom.reset(mode: .click)
-        bloom.setFiles(files, targets: model.targets(for: files))
+        bloom.setFiles(files, arrangement: model.arrangement(for: files))
         let screen = BloomController.screen(containing: point ?? NSEvent.mouseLocation)
         let anchor = point ?? NSPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY)
         show(at: anchor, on: screen, mode: .click)
@@ -72,6 +97,7 @@ final class BloomController: BloomInteractionDelegate {
         case .leftMouseDown:
             if shownMode == .click { hide() }
             drag = .pressed(NSPasteboard(name: .drag).changeCount)
+            startHold()
         case .leftMouseDragged:
             dragged()
         case .leftMouseUp:
@@ -81,10 +107,10 @@ final class BloomController: BloomInteractionDelegate {
         }
     }
 
-    /// A press in one of Clover's own windows: its drags never open the bloom.
+    /// A press in one of Clover's own windows: its drags never open the clover.
     private func handleLocalDown(_ event: NSEvent) {
         if drag != .files { drag = .other }
-        if shownMode == .click, event.window !== panel { hide() }
+        if shownMode == .click, event.window !== panel, event.window !== trayPanel { hide() }
     }
 
     private func dragged() {
@@ -94,6 +120,7 @@ final class BloomController: BloomInteractionDelegate {
             guard pasteboard.changeCount != count else { return }
             if pasteboard.types?.contains(.fileURL) == true {
                 drag = .files
+                stopHold()
                 startTicker()
                 checkTrigger()
             } else {
@@ -117,11 +144,17 @@ final class BloomController: BloomInteractionDelegate {
 
     private func released() {
         stopTicker()
+        stopHold()
         let wasFiles = drag == .files
         drag = .idle
-        guard wasFiles, shownMode == .drag, let panel else { return }
-        if panel.frame.contains(NSEvent.mouseLocation) {
-            // A drop on a petal arrives by itself; one anywhere else never does.
+        if openedByHold, !wasFiles, shownMode == .drag {
+            // Held still and let go: the user clicks a leaf instead.
+            switchToClickMode()
+            return
+        }
+        guard wasFiles, shownMode == .drag else { return }
+        if isOverClover(NSEvent.mouseLocation) {
+            // A drop on a leaf or a pill arrives by itself; one anywhere else never does.
             let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.hide() } }
             pendingHide?.cancel()
             pendingHide = work
@@ -129,6 +162,12 @@ final class BloomController: BloomInteractionDelegate {
         } else {
             hide()
         }
+    }
+
+    private func isOverClover(_ point: NSPoint) -> Bool {
+        if let panel, panel.frame.contains(point) { return true }
+        if let trayPanel, trayPanel.isVisible, trayPanel.frame.contains(point) { return true }
+        return false
     }
 
     private func startTicker() {
@@ -154,6 +193,102 @@ final class BloomController: BloomInteractionDelegate {
         checkTrigger()
     }
 
+    // MARK: Hold and press
+
+    /// After a mouse-down anywhere, watches for the trigger key while the button stays
+    /// down and the pointer stays put. Finder is checked only when the key goes down.
+    private func startHold() {
+        stopHold()
+        guard model.settings.holdToOpen, shownMode == nil else { return }
+        hold = HoldWatch(start: NSEvent.mouseLocation, keyDown: NSEvent.modifierFlags.contains(model.settings.triggerKey.flag))
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.holdTick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        holdTimer = timer
+    }
+
+    private func stopHold() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        hold = nil
+    }
+
+    private func holdTick() {
+        guard var watch = hold else {
+            stopHold()
+            return
+        }
+        let step = watch.update(buttonDown: NSEvent.pressedMouseButtons & 1 != 0, location: NSEvent.mouseLocation,
+                                keyDown: NSEvent.modifierFlags.contains(model.settings.triggerKey.flag))
+        hold = watch
+        switch step {
+        case .wait:
+            break
+        case .stop:
+            stopHold()
+        case .fire:
+            let start = watch.start
+            stopHold()
+            openFromHold(start: start)
+        }
+    }
+
+    private func openFromHold(start: NSPoint) {
+        guard shownMode == nil, drag != .files, model.settings.holdToOpen, FinderSelection.finderIsFrontmost else { return }
+        guard let files = finderSelection(), !files.isEmpty else { return }
+        // Finder may answer only once the button is up. If the pointer went somewhere
+        // meanwhile, the user has moved on.
+        let mouse = NSEvent.mouseLocation
+        let buttonDown = NSEvent.pressedMouseButtons & 1 != 0
+        guard shownMode == nil, drag != .files, hypot(mouse.x - start.x, mouse.y - start.y) < HoldWatch.slop * 3 else { return }
+        bloom.reset(mode: .drag)
+        bloom.setFiles(files, arrangement: model.arrangement(for: files))
+        show(at: mouse, on: BloomController.screen(containing: mouse), mode: .drag)
+        openedByHold = true
+        if !buttonDown { switchToClickMode() }
+    }
+
+    /// Opened by a hold and let go: the window takes keys and clicks pick a leaf.
+    private func switchToClickMode() {
+        guard let panel, shownMode == .drag else { return }
+        openedByHold = false
+        shownMode = .click
+        bloom.mode = .click
+        panel.allowsKey = true
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(panel.initialFirstResponder)
+    }
+
+    // MARK: Shortcut
+
+    private func hotkeyPressed() {
+        if shownMode != nil {
+            hide()
+            return
+        }
+        guard FinderSelection.finderIsFrontmost, let files = finderSelection(), !files.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        present(files: files, at: NSEvent.mouseLocation)
+    }
+
+    /// Finder's selection, or nil when it can't be read. A refused permission is
+    /// explained once.
+    private func finderSelection() -> [URL]? {
+        switch FinderSelection.read() {
+        case .success(let files):
+            return files
+        case .failure(.notPermitted):
+            FinderSelection.explainPermission()
+            return nil
+        case .failure(.script(let number, let message)):
+            NSLog("Clover: couldn't read Finder's selection (%d): %@", number, message)
+            return nil
+        }
+    }
+
     // MARK: Showing
 
     private func makePanel() {
@@ -177,6 +312,22 @@ final class BloomController: BloomInteractionDelegate {
             if self?.shownMode == .click { self?.hide() }
         }
         self.panel = panel
+
+        let tray = TrayPanel()
+        let trayContainer = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let trayHosting = NSHostingView(rootView: TrayView(model: bloom))
+        trayHosting.sizingOptions = []
+        trayHosting.frame = trayContainer.bounds
+        trayHosting.autoresizingMask = [.width, .height]
+        let trayInteraction = TrayInteractionView(model: bloom)
+        trayInteraction.frame = trayContainer.bounds
+        trayInteraction.autoresizingMask = [.width, .height]
+        trayInteraction.delegate = self
+        trayContainer.addSubview(trayHosting)
+        trayContainer.addSubview(trayInteraction)
+        tray.contentView = trayContainer
+        trayPanel = tray
+        bloom.onTrayChange = { [weak self] open in self?.trayChanged(open) }
     }
 
     private func show(at anchor: NSPoint, on screen: NSScreen, mode: BloomModel.Mode) {
@@ -188,6 +339,7 @@ final class BloomController: BloomInteractionDelegate {
         panel.setFrame(NSRect(x: c.x - side / 2, y: c.y - side / 2, width: side, height: side), display: true)
         panel.allowsKey = mode == .click
         shownMode = mode
+        openedByHold = false
         if mode == .click {
             panel.makeKeyAndOrderFront(nil)
             panel.makeFirstResponder(panel.initialFirstResponder)
@@ -196,20 +348,37 @@ final class BloomController: BloomInteractionDelegate {
         }
     }
 
+    /// Shows the More tray beside the More leaf, kept on screen, or hides it.
+    private func trayChanged(_ open: Bool) {
+        guard let trayPanel else { return }
+        guard open, shownMode != nil, let more = bloom.moreIndex else {
+            trayPanel.orderOut(nil)
+            return
+        }
+        let screen = BloomController.screen(containing: center)
+        let leaf = BloomLayout.screenRect(BloomLayout.leafBounds(more, of: bloom.leafCount), center: center)
+        let rect = TrayLayout.frame(size: bloom.traySize, more: leaf, clover: center, visible: screen.visibleFrame)
+        let m = TrayLayout.windowMargin
+        trayPanel.setFrame(rect.insetBy(dx: -m, dy: -m), display: true)
+        trayPanel.orderFrontRegardless()
+    }
+
     private func hide() {
         pendingHide?.cancel()
         pendingHide = nil
+        openedByHold = false
         guard shownMode != nil else { return }
         shownMode = nil
         panel?.allowsKey = false
         panel?.orderOut(nil)
+        trayPanel?.orderOut(nil)
         bloom.reset(mode: .drag)
     }
 
     // MARK: BloomInteractionDelegate
 
     func bloomReceivedFiles(_ files: [URL]) {
-        bloom.setFiles(files, targets: model.targets(for: files))
+        bloom.setFiles(files, arrangement: model.arrangement(for: files))
     }
 
     func bloomChose(_ target: Target, option: Option?) {
@@ -217,7 +386,7 @@ final class BloomController: BloomInteractionDelegate {
         guard !files.isEmpty else { return }
         BloomAnchor.set(center)
         model.convert(files, to: target, option: option)
-        // Leave the drop callback before the window goes.
+        // Leave the drop callback before the windows go.
         DispatchQueue.main.async { [weak self] in self?.hide() }
     }
 
@@ -227,19 +396,23 @@ final class BloomController: BloomInteractionDelegate {
 
     // MARK: Geometry
 
-    /// The most a page can cover, chips included, so the bloom is placed once and
-    /// never jumps when the files arrive.
+    /// Options with the widest chips, to size the clover's reach.
+    static let widestOptions: [[Option]] = [
+        [Options.original, Options.p1080, Options.p720, Options.small],
+        [Options.best, Options.balanced, Options.small, Options.lossless],
+        [Options.large, Options.medium, Options.small],
+        [Options.combine, Options.each],
+    ]
+
+    /// The most any clover can cover, chips included, so it is placed once and never
+    /// jumps when the files arrive. The More tray has its own window and placement.
     static let extent: CGRect = {
-        let sets: [[Option]] = [
-            [Options.original, Options.p1080, Options.p720, Options.small],
-            [Options.best, Options.balanced, Options.small, Options.lossless],
-            [Options.large, Options.medium, Options.small],
-            [Options.combine, Options.each],
-        ]
-        let widths = sets.map { set in
+        let widths = widestOptions.map { set in
             set.map { BloomLayout.chipWidth(textWidth: BloomStyle.textWidth($0.title), isDefault: true) }
         }
-        return BloomLayout.contentBounds(slots: Array(0..<BloomPlan.slotCount), chipWidths: widths)
+        return (1...BloomGeometry.maxLeaves).reduce(CGRect.null) { bounds, count in
+            bounds.union(BloomLayout.contentBounds(count: count, chipWidths: widths))
+        }
     }()
 
     static func screen(containing point: NSPoint) -> NSScreen {
@@ -247,7 +420,7 @@ final class BloomController: BloomInteractionDelegate {
     }
 }
 
-/// Where the bloom was when a conversion started from it, so the result chip can
+/// Where the clover was when a conversion started from it, so the result chip can
 /// appear in the same place.
 @MainActor
 enum BloomAnchor {
@@ -257,7 +430,7 @@ enum BloomAnchor {
         last = (point, Date())
     }
 
-    /// The point, if a bloom just closed. Used once.
+    /// The point, if a clover just closed. Used once.
     static func take() -> NSPoint? {
         defer { last = nil }
         guard let last, Date().timeIntervalSince(last.time) < 2 else { return nil }

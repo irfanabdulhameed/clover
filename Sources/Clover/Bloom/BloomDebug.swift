@@ -32,10 +32,12 @@ enum BloomDebug {
         return true
     }
 
-    // MARK: Bloom sheet
+    // MARK: Clover sheet
 
-    /// A sheet of the bloom for these files: resting, a petal lit with its chips, a chip
-    /// lit, and keyboard focus, in Light and Dark.
+    /// A sheet of the clover for these files, in Light and Dark: 3, 4, 5 and 6 leaves;
+    /// six with More; a leaf hovered with its chips; a chip lit; keyboard focus; the More
+    /// tray open with a pill hovered; the tray kept on screen in a corner; and the
+    /// dashboard's still preview.
     static func renderBloom(_ args: [String], model: AppModel) async -> Int32 {
         var rest = args
         guard !rest.isEmpty else {
@@ -46,45 +48,79 @@ enum BloomDebug {
         let noTargets = rest.contains("--no-targets")
         rest.removeAll { $0 == "--no-targets" }
         let files = rest.map { URL(fileURLWithPath: $0) }
-        let targets = noTargets ? [] : model.targets(for: files)
+        let arrangement = noTargets ? Arrangement(leaves: [], more: []) : model.arrangement(for: files)
+        let all = arrangement.all
 
-        func make() -> BloomModel {
+        func make(_ a: Arrangement) -> BloomModel {
             let m = BloomModel()
             m.chipDelay = 0
             m.reset(mode: .click)
-            m.setFiles(files, targets: targets)
+            m.setFiles(files, arrangement: a)
             return m
         }
-        let resting = make()
-        let lit = make()
-        let chip = make()
-        let focus = make()
-        // The first petal with options shows its chips; otherwise the first petal.
-        let withChips = lit.items.filter { lit.target(at: $0.slot).map { !$0.options.isEmpty } ?? false }
-        if let item = withChips.first ?? lit.items.first {
-            lit.pointer(at: BloomLayout.petalCenter(item.slot))
-            chip.pointer(at: BloomLayout.petalCenter(item.slot))
-            if let last = chip.chipFrames(for: item.slot).last {
-                chip.pointer(at: CGPoint(x: last.midX, y: last.midY))
-            }
-        }
-        // Keyboard focus on the last petal with chips, down onto its first chip.
-        let other = (withChips.count > 1 ? withChips.last : nil) ?? focus.items.dropFirst().first ?? focus.items.first
-        if let other, let number = focus.items.firstIndex(of: other) {
-            focus.focusNumber(number + 1)
-            focus.moveChipFocus(by: 1)
-        }
-        for m in [resting, lit, chip, focus] { await m.waitForThumbnails(timeout: 4) }
+        func center(_ box: CGRect) -> CGPoint { CGPoint(x: box.midX, y: box.midY) }
 
-        let columns: [(String, BloomModel)] = [("resting", resting), ("petal lit", lit), ("chip lit", chip), ("keyboard focus", focus)]
+        let counts = (3...6).map { n in ("\(n) leaves", make(Arrangement(leaves: Array(all.prefix(n)), more: []))) }
+        let resting = make(arrangement)
+        let hovered = make(arrangement)
+        let chip = make(arrangement)
+        let focus = make(arrangement)
+        // The tray shows chips only for targets with options; put some behind More if needed.
+        let trayArrangement: Arrangement = {
+            guard !arrangement.more.isEmpty, !arrangement.more.contains(where: { !$0.options.isEmpty }) else { return arrangement }
+            let leaves = BloomGeometry.maxLeaves - 1
+            return Arrangement(leaves: Array(all.suffix(leaves)), more: Array(all.dropLast(leaves)))
+        }()
+        let tray = make(trayArrangement)
+        let corner = make(trayArrangement)
+        let count = resting.leafCount
+        // The first leaf with options shows its chips; otherwise the first leaf.
+        let withChips = (0..<count).filter { !(hovered.target(at: $0)?.options.isEmpty ?? true) }
+        if let leaf = withChips.first ?? (count > 0 ? 0 : nil) {
+            hovered.pointer(at: center(BloomLayout.labelBox(leaf, of: count)))
+            chip.pointer(at: center(BloomLayout.labelBox(leaf, of: count)))
+            if let last = chip.chipFrames(for: leaf).last { chip.pointer(at: center(last)) }
+        }
+        // Keyboard focus on another leaf with chips.
+        if let leaf = (withChips.count > 1 ? withChips[1] : nil) ?? (count > 1 ? 1 : nil) {
+            focus.focusNumber(leaf + 1)
+        }
+        // The tray: More lit, the first pill with options hovered with its chips; in the corner, a chip lit.
+        for m in [tray, corner] where m.moreIndex != nil {
+            m.openTray(focusFirst: false)
+            let pills = m.pillFrames
+            let pill = pills.indices.first { !(m.pillTarget($0)?.options.isEmpty ?? true) } ?? 0
+            if pills.indices.contains(pill) { m.trayPointer(at: center(pills[pill])) }
+            if m === corner, let first = m.pillChipFrames(for: pill).first { m.trayPointer(at: center(first)) }
+        }
+        for m in counts.map(\.1) + [resting, hovered, chip, focus, tray, corner] { await m.waitForThumbnails(timeout: 4) }
+
+        let rows: [[(String, BloomModel)]] = [
+            counts,
+            [("6 with More", resting), ("leaf hovered, chips", hovered), ("chip lit", chip), ("keyboard focus", focus)],
+        ]
+        let preview = Arrangement(leaves: arrangement.leaves, more: arrangement.more)
+        let highlight = withChips.first.flatMap { arrangement.leaves.indices.contains($0) ? arrangement.leaves[$0].id : nil }
         let sheet = VStack(spacing: 0) {
             ForEach([ColorScheme.light, .dark], id: \.self) { scheme in
-                HStack(spacing: 0) {
-                    ForEach(columns.indices, id: \.self) { i in
-                        let (name, m) = columns[i]
-                        Tile(title: "\(scheme == .dark ? "Dark" : "Light") · \(name)", scheme: scheme) {
-                            BloomView(model: m)
+                let name = scheme == .dark ? "Dark" : "Light"
+                ForEach(rows.indices, id: \.self) { r in
+                    HStack(spacing: 0) {
+                        ForEach(rows[r].indices, id: \.self) { i in
+                            let (title, m) = rows[r][i]
+                            Tile(title: "\(name) · \(title)", scheme: scheme) { BloomView(model: m) }
                         }
+                    }
+                }
+                HStack(spacing: 0) {
+                    Tile(title: "\(name) · More tray, pill hovered", scheme: scheme, width: 700, height: 560) {
+                        ScreenScene(model: tray, size: CGSize(width: 700, height: 560), anchor: CGPoint(x: 440, y: 280))
+                    }
+                    Tile(title: "\(name) · top-left corner: clover and tray kept on screen", scheme: scheme, width: 900, height: 560) {
+                        ScreenScene(model: corner, size: CGSize(width: 900, height: 560), anchor: CGPoint(x: 4, y: 556))
+                    }
+                    Tile(title: "\(name) · dashboard preview", scheme: scheme, width: 400, height: 560, plain: true) {
+                        CloverPreview(arrangement: preview, file: files.first, highlighted: highlight)
                     }
                 }
             }
@@ -184,6 +220,8 @@ private struct Tile<Content: View>: View {
     let scheme: ColorScheme
     var width: CGFloat = BloomGeometry.panelSize
     var height: CGFloat = BloomGeometry.panelSize
+    /// A plain window background instead of the desktop.
+    var plain = false
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -196,7 +234,11 @@ private struct Tile<Content: View>: View {
                 .frame(height: 22)
                 .background(scheme == .dark ? Color(white: 0.1) : Color(white: 0.93))
             ZStack {
-                backdrop
+                if plain {
+                    Color(nsColor: .windowBackgroundColor)
+                } else {
+                    backdrop
+                }
                 content()
             }
             .frame(width: width, height: height)
@@ -225,5 +267,31 @@ private struct Tile<Content: View>: View {
             }
             .offset(x: width * 0.54, y: height * 0.14)
         }
+    }
+}
+
+/// A screen of `size` (its visible frame, y up from the bottom) with the clover opened
+/// at `anchor` and its More tray, both placed as the live windows are.
+private struct ScreenScene: View {
+    let model: BloomModel
+    let size: CGSize
+    let anchor: CGPoint
+
+    var body: some View {
+        let visible = CGRect(origin: .zero, size: size)
+        let c = BloomLayout.clampedCenter(anchor, bounds: BloomController.extent, visible: visible)
+        ZStack(alignment: .topLeading) {
+            BloomView(model: model)
+                .position(x: c.x, y: size.height - c.y)
+            if model.trayOpen, let more = model.moreIndex {
+                let leaf = BloomLayout.screenRect(BloomLayout.leafBounds(more, of: model.leafCount), center: c)
+                let rect = TrayLayout.frame(size: model.traySize, more: leaf, clover: c, visible: visible)
+                TrayView(model: model)
+                    .position(x: rect.midX, y: size.height - rect.midY)
+            }
+            Rectangle()
+                .strokeBorder(Color.red.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+        }
+        .frame(width: size.width, height: size.height)
     }
 }
