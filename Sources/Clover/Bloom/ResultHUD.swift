@@ -17,6 +17,8 @@ final class ResultHUD {
     private var screen: NSScreen?
     /// Older finished chips give way beyond this many.
     private let limit = 6
+    /// Jobs still running, watched so their files can be shown in Finder when done.
+    private var revealWatchers: [UUID: AnyCancellable] = [:]
 
     init(model: AppModel) { self.model = model }
 
@@ -36,6 +38,28 @@ final class ResultHUD {
         chips.append(chip)
         layout()
         chip.panel.orderFrontRegardless()
+        watchForReveal(job)
+    }
+
+    /// Shows a job's new files in Finder once it is done, when the user asked for that.
+    private func watchForReveal(_ job: ConversionJob) {
+        revealWatchers[job.id] = job.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak job] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let job, job.isFinished else { return }
+                    self.revealWatchers[job.id] = nil
+                    guard ResultHUD.shouldReveal(job.state, outputs: job.outputs,
+                                                 enabled: self.model.settings.revealAfterConverting) else { return }
+                    let existing = job.outputs.filter { FileManager.default.fileExists(atPath: $0.path) }
+                    if !existing.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(existing) }
+                }
+            }
+    }
+
+    /// Only a job that made files, and only when "Show in Finder after converting" is on.
+    static func shouldReveal(_ state: ConversionJob.State, outputs: [URL], enabled: Bool) -> Bool {
+        enabled && state == .done && !outputs.isEmpty
     }
 
     func remove(_ chip: ResultChip) {

@@ -1,24 +1,42 @@
 import AppKit
 import CloverCore
 
-/// Everything the bloom shows, and what the pointer and the keys are doing to it.
+/// Everything the clover shows, and what the pointer and the keys are doing to it.
 /// Every change is instant: nothing here animates.
 @MainActor
 final class BloomModel: ObservableObject {
     enum Mode { case drag, click }
 
+    /// What a leaf holds.
+    enum Leaf: Equatable {
+        case target(Target)
+        case more
+    }
+
+    /// Keyboard focus: a leaf, or a pill in the More tray.
+    enum Focus: Equatable {
+        case leaf(Int)
+        case pill(Int)
+    }
+
     @Published private(set) var files: [URL] = []
-    /// False while a drag hasn't reached the bloom yet: the hub shows a placeholder.
+    /// False while a drag hasn't reached the clover yet: the hub shows a placeholder.
     @Published private(set) var hasFiles = false
-    @Published private(set) var targets: [Target] = []
-    @Published private(set) var plan = BloomPlan(targetIDs: [])
-    @Published private(set) var page = 0
-    /// What the pointer is over.
+    @Published private(set) var arrangement = Arrangement(leaves: [], more: [])
+    /// What the pointer is over on the clover.
     @Published private(set) var hover: BloomHit = .none
-    /// The petal whose chips are showing.
-    @Published private(set) var openSlot: Int?
-    /// Keyboard focus: a petal, and maybe one of its chips.
-    @Published private(set) var focusSlot: Int?
+    /// The leaf whose chips are showing.
+    @Published private(set) var openLeaf: Int?
+    /// The More tray. The controller shows and hides its window.
+    @Published private(set) var trayOpen = false {
+        didSet { if trayOpen != oldValue { onTrayChange?(trayOpen) } }
+    }
+    /// What the pointer is over in the tray.
+    @Published private(set) var trayHover: TrayHit = .none
+    /// The pill whose chips are showing.
+    @Published private(set) var openPill: Int?
+    @Published private(set) var focus: Focus?
+    /// One of the focused leaf's or pill's chips.
     @Published private(set) var focusChip: Int?
     /// True after a key press, until the pointer moves again.
     @Published private(set) var usingKeyboard = false
@@ -27,18 +45,18 @@ final class BloomModel: ObservableObject {
     @Published private(set) var thumbnailsLoaded = false
 
     var mode: Mode = .drag
-    /// Rest on a petal this long before its chips open, so sweeping doesn't flicker.
+    /// Rest on a leaf or a pill this long before its chips open, so sweeping doesn't flicker.
     var chipDelay: TimeInterval = 0.08
-    /// Rest on More this long, during a drag, to turn the page.
+    /// Rest on More this long, during a drag, to open the tray.
     var moreDelay: TimeInterval = 0.3
+    /// Called when the tray opens or closes.
+    var onTrayChange: ((Bool) -> Void)?
 
-    private var byID: [String: Target] = [:]
-    private var chipWidths: [String: [CGFloat]] = [:]
+    private var chipWidthCache: [String: [CGFloat]] = [:]
     private var chipTimer: DispatchWorkItem?
     private var moreTimer: DispatchWorkItem?
-    /// More turns the page once per visit.
-    private var moreArmed = true
     private var thumbnailTask: Task<Void, Never>?
+    private(set) var pillWidth: CGFloat = TrayLayout.pillMinWidth
 
     // MARK: Content
 
@@ -48,204 +66,279 @@ final class BloomModel: ObservableObject {
         self.mode = mode
         files = []
         hasFiles = false
-        targets = []
-        byID = [:]
-        chipWidths = [:]
-        plan = BloomPlan(targetIDs: [])
-        page = 0
+        arrangement = Arrangement(leaves: [], more: [])
+        chipWidthCache = [:]
         clearPointerAndFocus()
         pictures = []
         thumbnailsLoaded = false
     }
 
-    func setFiles(_ files: [URL], targets: [Target]) {
+    /// The files, and the clover the user arranged for them (`AppModel.arrangement(for:)`).
+    func setFiles(_ files: [URL], arrangement: Arrangement) {
         cancelTimers()
-        let ordered = BloomModel.ordered(targets, files: files)
         self.files = files
         hasFiles = true
-        self.targets = ordered
-        byID = Dictionary(ordered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        chipWidths = [:]
-        plan = BloomPlan(targetIDs: ordered.map(\.id))
-        page = 0
+        self.arrangement = arrangement
+        chipWidthCache = [:]
+        pillWidth = TrayLayout.pillWidth(textWidths: arrangement.more.map { BloomStyle.textWidth($0.title, font: BloomStyle.pillFont) })
         clearPointerAndFocus()
         loadPictures()
     }
 
-    /// The family's own formats first (Extract first for archives), then the rest,
-    /// each group in the catalog's order.
-    static func ordered(_ targets: [Target], files: [URL]) -> [Target] {
-        let families = Set(files.compactMap { Formats.detect($0)?.family })
-        let main = families.count == 1 ? families.first : nil
-        func rank(_ target: Target) -> Int {
-            if target.id == "folder" { return 0 }
-            if let main, target.format.family == main { return 1 }
-            return 2
-        }
-        return targets.enumerated()
-            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
-            .map(\.element)
+    /// The leaves clockwise from 12 o'clock; More last when some targets don't fit.
+    var leaves: [Leaf] {
+        arrangement.leaves.map(Leaf.target) + (arrangement.more.isEmpty ? [] : [.more])
     }
 
-    var items: [BloomPlan.Item] { plan.items(onPage: page) }
-    var slots: [Int] { items.map(\.slot) }
-    var pageCount: Int { plan.pageCount }
+    var leafCount: Int { arrangement.leaves.count + (arrangement.more.isEmpty ? 0 : 1) }
 
-    func item(at slot: Int) -> BloomPlan.Item? { items.first { $0.slot == slot } }
+    var moreIndex: Int? { arrangement.more.isEmpty ? nil : arrangement.leaves.count }
 
-    func target(at slot: Int) -> Target? {
-        guard case .target(let id)? = item(at: slot)?.kind else { return nil }
-        return byID[id]
+    func target(at leaf: Int) -> Target? {
+        arrangement.leaves.indices.contains(leaf) ? arrangement.leaves[leaf] : nil
     }
 
-    func isMore(_ slot: Int) -> Bool { item(at: slot)?.kind == .more }
+    func isMore(_ leaf: Int) -> Bool { leaf == moreIndex }
+
+    func pillTarget(_ pill: Int) -> Target? {
+        arrangement.more.indices.contains(pill) ? arrangement.more[pill] : nil
+    }
 
     /// Chip widths for a target, measured with the chip font.
     func chipWidths(for target: Target) -> [CGFloat] {
-        if let cached = chipWidths[target.id] { return cached }
+        if let cached = chipWidthCache[target.id] { return cached }
         let widths = target.options.map { option in
             BloomLayout.chipWidth(textWidth: BloomStyle.textWidth(option.title),
                                   isDefault: option.id == target.defaultOption?.id)
         }
-        chipWidths[target.id] = widths
+        chipWidthCache[target.id] = widths
         return widths
     }
 
-    func chipFrames(for slot: Int) -> [CGRect] {
-        guard let target = target(at: slot) else { return [] }
-        return BloomLayout.chipFrames(slot: slot, widths: chipWidths(for: target))
+    func chipFrames(for leaf: Int) -> [CGRect] {
+        guard let target = target(at: leaf) else { return [] }
+        return BloomLayout.chipFrames(leaf, of: leafCount, widths: chipWidths(for: target))
     }
 
-    // MARK: Pointer
+    // MARK: Tray geometry
 
-    /// The pointer moved to `point`, in bloom coordinates.
+    var traySize: CGSize {
+        let widest = arrangement.more.map { TrayLayout.chipRowWidth(chipWidths(for: $0)) }.max() ?? 0
+        return TrayLayout.size(count: arrangement.more.count, pillWidth: pillWidth, chipRow: widest)
+    }
+
+    var pillFrames: [CGRect] {
+        TrayLayout.pillFrames(count: arrangement.more.count, pillWidth: pillWidth, trayWidth: traySize.width)
+    }
+
+    func pillChipFrames(for pill: Int) -> [CGRect] {
+        guard let target = pillTarget(pill) else { return [] }
+        let frames = pillFrames
+        return TrayLayout.chipFrames(under: frames[pill], widths: chipWidths(for: target), trayWidth: traySize.width)
+    }
+
+    // MARK: Pointer on the clover
+
+    /// The pointer moved to `point`, in clover coordinates.
     func pointer(at point: CGPoint) {
         if usingKeyboard { usingKeyboard = false }
-        let chips = openSlot.map { chipFrames(for: $0) } ?? []
-        let hit = BloomLayout.hit(point, slots: slots, open: openSlot, chips: chips)
+        let chips = openLeaf.map { chipFrames(for: $0) } ?? []
+        let hit = BloomLayout.hit(point, count: leafCount, open: openLeaf, chips: chips)
+        // Back on the clover, off More, closes the tray.
+        if trayOpen, hit == .hub || (hit.leaf != nil && hit.leaf != moreIndex) { closeTray() }
         guard hit != hover else { return }
-        let oldSlot = hover.slot
+        let oldLeaf = hover.leaf
         hover = hit
-        if hit.slot != oldSlot { pointerSlotChanged(hit.slot) }
+        if hit.leaf != oldLeaf { pointerLeafChanged(hit.leaf) }
     }
 
     func pointerLeft() {
         guard hover != .none else { return }
         hover = .none
-        pointerSlotChanged(nil)
+        pointerLeafChanged(nil)
     }
 
-    private func pointerSlotChanged(_ slot: Int?) {
+    private func pointerLeafChanged(_ leaf: Int?) {
         cancelTimers()
-        if slot != openSlot { openSlot = nil }
-        guard let slot else {
-            moreArmed = true
-            return
-        }
-        if isMore(slot) {
-            guard mode == .drag, moreArmed else { return }
+        if leaf != openLeaf { openLeaf = nil }
+        guard let leaf else { return }
+        if isMore(leaf) {
+            guard mode == .drag, !trayOpen else { return }
             schedule(&moreTimer, after: moreDelay) { [weak self] in
-                guard let self, self.hover.slot == slot, self.isMore(slot) else { return }
-                self.moreArmed = false
-                self.nextPage()
+                guard let self, self.hover.leaf == leaf, self.isMore(leaf) else { return }
+                self.openTray(focusFirst: false)
             }
             return
         }
-        moreArmed = true
-        guard let target = target(at: slot), !target.options.isEmpty else { return }
+        guard let target = target(at: leaf), !target.options.isEmpty else { return }
         if chipDelay <= 0 {
-            openSlot = slot
+            openLeaf = leaf
         } else {
             schedule(&chipTimer, after: chipDelay) { [weak self] in
-                guard let self, self.hover.slot == slot else { return }
-                self.openSlot = slot
+                guard let self, self.hover.leaf == leaf else { return }
+                self.openLeaf = leaf
             }
         }
     }
 
-    func nextPage() {
-        guard pageCount > 1 else { return }
-        page = (page + 1) % pageCount
-        openSlot = nil
+    // MARK: The tray
+
+    func openTray(focusFirst: Bool) {
+        guard moreIndex != nil else { return }
+        openLeaf = nil
+        trayHover = .none
+        openPill = nil
         focusChip = nil
-        focusSlot = usingKeyboard ? items.first?.slot : nil
-        if let focusSlot { openChips(for: focusSlot) }
+        if focusFirst {
+            usingKeyboard = true
+            setFocus(.pill(0))
+        }
+        trayOpen = true
     }
 
-    func previousPage() {
-        guard pageCount > 1 else { return }
-        page = (page + pageCount - 1) % pageCount
-        openSlot = nil
-        focusChip = nil
-        focusSlot = usingKeyboard ? items.last?.slot : nil
-        if let focusSlot { openChips(for: focusSlot) }
+    func closeTray() {
+        guard trayOpen else { return }
+        trayOpen = false
+        trayHover = .none
+        openPill = nil
+        if case .pill = focus {
+            focus = moreIndex.map(Focus.leaf)
+            focusChip = nil
+        }
+    }
+
+    func toggleTray() {
+        if trayOpen { closeTray() } else { openTray(focusFirst: usingKeyboard) }
+    }
+
+    /// The pointer moved to `point`, in tray coordinates.
+    func trayPointer(at point: CGPoint) {
+        guard trayOpen else { return }
+        if usingKeyboard { usingKeyboard = false }
+        let chips = openPill.map { pillChipFrames(for: $0) } ?? []
+        let hit = TrayLayout.hit(point, pills: pillFrames, open: openPill, chips: chips, size: traySize)
+        guard hit != trayHover else { return }
+        let oldPill = trayHover.pill
+        trayHover = hit
+        if hit.pill != oldPill { trayPillChanged(hit.pill) }
+    }
+
+    func trayPointerLeft() {
+        guard trayHover != .none else { return }
+        trayHover = .none
+        trayPillChanged(nil)
+    }
+
+    private func trayPillChanged(_ pill: Int?) {
+        chipTimer?.cancel()
+        chipTimer = nil
+        if pill != openPill { openPill = nil }
+        guard let pill, let target = pillTarget(pill), !target.options.isEmpty else { return }
+        if chipDelay <= 0 {
+            openPill = pill
+        } else {
+            schedule(&chipTimer, after: chipDelay) { [weak self] in
+                guard let self, self.trayHover.pill == pill else { return }
+                self.openPill = pill
+            }
+        }
     }
 
     // MARK: Keyboard
 
-    /// Arrow keys: the next petal around the ring.
+    /// Left and right: the next leaf around the clover, or the next pill in the tray.
     func moveFocus(by step: Int) {
-        let items = self.items
-        guard !items.isEmpty else { return }
         usingKeyboard = true
-        let n = items.count
-        var index = step > 0 ? 0 : n - 1
-        if let focusSlot, let i = items.firstIndex(where: { $0.slot == focusSlot }) {
-            index = ((i + step) % n + n) % n
-        }
-        setFocus(items[index].slot)
-    }
-
-    /// Tab: the next petal, and past the last one, the next page.
-    func tab(forward: Bool) {
-        let ring = items.filter { $0.kind != .more }
-        guard !ring.isEmpty else { return }
-        usingKeyboard = true
-        guard let focusSlot, let i = ring.firstIndex(where: { $0.slot == focusSlot }) else {
-            setFocus((forward ? ring.first : ring.last)!.slot)
+        if case .pill(let pill)? = focus {
+            let n = arrangement.more.count
+            setFocus(.pill(((pill + step) % n + n) % n))
             return
         }
-        let next = i + (forward ? 1 : -1)
-        if ring.indices.contains(next) {
-            setFocus(ring[next].slot)
-        } else if pageCount > 1 {
-            if forward { nextPage() } else { previousPage() }
-            let ring = items.filter { $0.kind != .more }
-            if let slot = (forward ? ring.first : ring.last)?.slot { setFocus(slot) }
-        } else {
-            setFocus((forward ? ring.first : ring.last)!.slot)
-        }
+        let n = leafCount
+        guard n > 0 else { return }
+        var index = step > 0 ? 0 : n - 1
+        if case .leaf(let leaf)? = focus { index = ((leaf + step) % n + n) % n }
+        setFocus(.leaf(index))
     }
 
-    /// Up and down: through the focused petal's chips, then back to the petal.
+    /// Tab: every leaf, then every pill in the tray (opening it), then back to the first leaf.
+    func tab(forward: Bool) {
+        let leafStops = arrangement.leaves.indices.map(Focus.leaf)
+        let stops = leafStops + arrangement.more.indices.map(Focus.pill)
+        guard !stops.isEmpty else { return }
+        usingKeyboard = true
+        var next = forward ? 0 : stops.count - 1
+        if let focus {
+            let current: Int? = {
+                if case .leaf(let leaf) = focus, isMore(leaf) {
+                    // From More, Tab goes into the tray and Shift-Tab back to the last leaf.
+                    return forward ? leafStops.count - 1 : leafStops.count
+                }
+                return stops.firstIndex(of: focus)
+            }()
+            if let current { next = ((current + (forward ? 1 : -1)) % stops.count + stops.count) % stops.count }
+        }
+        setFocus(stops[next])
+    }
+
+    /// Up and down: through the focused leaf's or pill's chips, then back to it.
     func moveChipFocus(by step: Int) {
-        guard let focusSlot, let target = target(at: focusSlot), !target.options.isEmpty else { return }
+        guard let focus, let target = focusedTarget, !target.options.isEmpty else { return }
         usingKeyboard = true
         let n = target.options.count
-        // Positions 0..<n are chips, n is the petal itself.
+        // Positions 0..<n are chips, n is the leaf or pill itself.
         let current = focusChip ?? n
         let next = ((current + step) % (n + 1) + (n + 1)) % (n + 1)
         focusChip = next == n ? nil : next
-        openSlot = focusSlot
+        switch focus {
+        case .leaf(let leaf): openLeaf = leaf
+        case .pill(let pill): openPill = pill
+        }
     }
 
-    /// Digits 1 to 8: the petal at that place, clockwise from 12 o'clock.
+    /// Digits 1 to 6: the leaf at that place, clockwise from 12 o'clock.
     func focusNumber(_ number: Int) {
-        let items = self.items
-        guard items.indices.contains(number - 1) else { return }
+        guard number >= 1, number <= leafCount else { return }
         usingKeyboard = true
-        setFocus(items[number - 1].slot)
+        setFocus(.leaf(number - 1))
     }
 
-    private func setFocus(_ slot: Int) {
-        focusSlot = slot
+    /// Return on More opens the tray at its first pill.
+    var focusIsMore: Bool {
+        if case .leaf(let leaf)? = focus { return isMore(leaf) }
+        return false
+    }
+
+    /// Esc closes the tray first. Returns false when there was no tray to close.
+    func escape() -> Bool {
+        guard trayOpen else { return false }
+        closeTray()
+        return true
+    }
+
+    private var focusedTarget: Target? {
+        switch focus {
+        case .leaf(let leaf)?: target(at: leaf)
+        case .pill(let pill)?: pillTarget(pill)
+        case nil: nil
+        }
+    }
+
+    private func setFocus(_ new: Focus) {
+        focus = new
         focusChip = nil
-        openChips(for: slot)
-    }
-
-    private func openChips(for slot: Int) {
-        let hasChips = !(target(at: slot)?.options.isEmpty ?? true)
-        openSlot = hasChips ? slot : nil
+        switch new {
+        case .leaf(let leaf):
+            if trayOpen { closeTray() }
+            openPill = nil
+            let hasChips = !(target(at: leaf)?.options.isEmpty ?? true)
+            openLeaf = hasChips ? leaf : nil
+        case .pill(let pill):
+            openLeaf = nil
+            if !trayOpen { trayOpen = true }
+            let hasChips = !(pillTarget(pill)?.options.isEmpty ?? true)
+            openPill = hasChips ? pill : nil
+        }
     }
 
     // MARK: Choices
@@ -253,11 +346,25 @@ final class BloomModel: ObservableObject {
     /// What a drop or a click at `hit` converts to. Nil for More, the hub and empty space.
     func choice(at hit: BloomHit) -> (target: Target, option: Option?)? {
         switch hit {
-        case .petal(let slot):
-            guard let target = target(at: slot) else { return nil }
+        case .leaf(let leaf):
+            guard let target = target(at: leaf) else { return nil }
             return (target, target.defaultOption)
-        case .chip(let slot, let index):
-            guard let target = target(at: slot), target.options.indices.contains(index) else { return nil }
+        case .chip(let leaf, let index):
+            guard let target = target(at: leaf), target.options.indices.contains(index) else { return nil }
+            return (target, target.options[index])
+        default:
+            return nil
+        }
+    }
+
+    /// What a drop or a click on the tray converts to. Nil for the tray's background.
+    func trayChoice(at hit: TrayHit) -> (target: Target, option: Option?)? {
+        switch hit {
+        case .pill(let pill):
+            guard let target = pillTarget(pill) else { return nil }
+            return (target, target.defaultOption)
+        case .chip(let pill, let index):
+            guard let target = pillTarget(pill), target.options.indices.contains(index) else { return nil }
             return (target, target.options[index])
         default:
             return nil
@@ -266,30 +373,70 @@ final class BloomModel: ObservableObject {
 
     /// What Return converts to.
     var keyboardChoice: (target: Target, option: Option?)? {
-        guard let focusSlot else { return nil }
-        if let focusChip { return choice(at: .chip(slot: focusSlot, index: focusChip)) }
-        return choice(at: .petal(slot: focusSlot))
+        switch focus {
+        case .leaf(let leaf)?:
+            if let focusChip { return choice(at: .chip(leaf: leaf, index: focusChip)) }
+            return choice(at: .leaf(leaf))
+        case .pill(let pill)?:
+            if let focusChip { return trayChoice(at: .chip(pill: pill, index: focusChip)) }
+            return trayChoice(at: .pill(pill))
+        case nil:
+            return nil
+        }
     }
 
     // MARK: What's lit
 
-    /// The petal drawn lit, from the keyboard or the pointer.
-    var litSlot: Int? { usingKeyboard ? focusSlot : hover.slot }
+    /// The leaf drawn lit, from the keyboard or the pointer. More stays lit while its tray is open.
+    var litLeaf: Int? {
+        if usingKeyboard {
+            switch focus {
+            case .leaf(let leaf)?: return leaf
+            case .pill?: return moreIndex
+            case nil: return nil
+            }
+        }
+        if let leaf = hover.leaf { return leaf }
+        return trayOpen ? moreIndex : nil
+    }
 
-    /// The chip drawn lit.
+    /// The pill drawn lit.
+    var litPill: Int? {
+        if usingKeyboard {
+            if case .pill(let pill)? = focus { return pill }
+            return nil
+        }
+        return trayHover.pill
+    }
+
+    /// The chip drawn lit, on the open leaf or the open pill.
     var litChip: Int? {
         if usingKeyboard { return focusChip }
         if case .chip(_, let index) = hover { return index }
+        if case .chip(_, let index) = trayHover { return index }
         return nil
+    }
+
+    var focusedLeaf: Int? {
+        guard usingKeyboard, case .leaf(let leaf)? = focus else { return nil }
+        return leaf
+    }
+
+    var focusedPill: Int? {
+        guard usingKeyboard, case .pill(let pill)? = focus else { return nil }
+        return pill
     }
 
     /// The line under the hub.
     var hint: String {
         guard hasFiles else { return "" }
-        if targets.isEmpty { return "Clover can't convert these" }
-        if let slot = litSlot {
-            if isMore(slot) { return "Page \((page + 1) % pageCount + 1) of \(pageCount)" }
-            if let target = target(at: slot) {
+        if arrangement.all.isEmpty { return "Clover can't convert these" }
+        if let pill = litPill, let target = pillTarget(pill) {
+            return BloomModel.hint(for: target, option: litChip.flatMap { target.options.indices.contains($0) ? target.options[$0] : nil })
+        }
+        if let leaf = litLeaf {
+            if isMore(leaf) { return "\(arrangement.more.count) more formats" }
+            if let target = target(at: leaf) {
                 let option = litChip.flatMap { target.options.indices.contains($0) ? target.options[$0] : nil }
                 return BloomModel.hint(for: target, option: option)
             }
@@ -356,11 +503,13 @@ final class BloomModel: ObservableObject {
 
     private func clearPointerAndFocus() {
         hover = .none
-        openSlot = nil
-        focusSlot = nil
+        openLeaf = nil
+        trayOpen = false
+        trayHover = .none
+        openPill = nil
+        focus = nil
         focusChip = nil
         usingKeyboard = false
-        moreArmed = true
     }
 
     private func cancelTimers() {
