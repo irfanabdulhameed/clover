@@ -684,7 +684,7 @@ enum BloomSelfTest {
         let (litLook, litFill) = M.slot(1, count: 6, center: c, e, now: 2.002)
         expect(litFill == .lit && litLook.blur == 0, "the lit flip is instant, with no fade")
         let other = M.slot(0, count: 6, center: c, e, now: 3).look
-        expect(other.opacity < 0.8 && other.blur == M.Hover.dimBlur, "the others dim and soften")
+        expect(abs(other.opacity - M.Hover.dimOpacity) < 0.001 && other.blur == M.Hover.dimBlur, "the others dim and soften")
         let g1 = M.glow(e, now: 2.6)!, g2 = M.glow(e, now: 3.8)!
         expect(abs(g1.scale - g2.scale) > 0.03, "the glow breathes")
         expect(M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.2) != nil && M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.46) == nil,
