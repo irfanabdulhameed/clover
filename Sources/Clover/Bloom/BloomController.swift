@@ -54,6 +54,12 @@ final class BloomController: BloomInteractionDelegate {
         if BloomDebug.run(CommandLine.arguments, model: model) { return }
         makePanel()
         guard monitors.isEmpty else { return }
+        // Leaf outlines and label boxes are measured once, now, not on the first drag.
+        DispatchQueue.main.async {
+            for count in 1...BloomGeometry.maxLeaves {
+                for index in 0..<count { _ = BloomLayout.labelBox(index, of: count) }
+            }
+        }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp], handler: { [weak self] event in
             MainActor.assumeIsolated { self?.handleGlobal(event) }
         }) {
