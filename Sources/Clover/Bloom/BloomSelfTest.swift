@@ -1,8 +1,8 @@
 import AppKit
 import CloverCore
 
-/// Checks the clover's leaves, geometry, hit-testing, edge clamping, More tray, model,
-/// chip texts, the Finder selection parsing and the hold logic. Run with
+/// Checks the clover's slots, geometry, hit-testing, edge clamping, More tray, model,
+/// motion curves, chip texts, the Finder selection parsing and the hold logic. Run with
 /// `Clover --bloom-selftest`; exits 1 on any failure. Never runs AppleScript.
 @MainActor
 enum BloomSelfTest {
@@ -20,7 +20,7 @@ enum BloomSelfTest {
     static func run(model: AppModel) async -> Int32 {
         titles = ["More"] + LayoutKey.allCases.flatMap { model.catalog.allTargets(for: $0).map(\.title) }
         leaves()
-        masks()
+        slotShapes()
         geometry()
         chips()
         hitTesting()
@@ -28,6 +28,7 @@ enum BloomSelfTest {
         tray()
         chipStack()
         await bloomModel(model)
+        motion()
         chipTexts()
         finder()
         hold()
@@ -47,18 +48,6 @@ enum BloomSelfTest {
         return xs.allSatisfy { x in ys.allSatisfy { y in path.contains(CGPoint(x: x, y: y)) } }
     }
 
-    /// Shortest distance from a rectangle to an outline; negative when they overlap.
-    private static func clearance(_ rect: CGRect, _ outline: [CGPoint], _ path: CGPath) -> CGFloat {
-        if outline.contains(where: { rect.contains($0) }) || path.contains(center(rect)) { return -1 }
-        let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
-                       CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)]
-        let fromCorners = corners.map { L.distance($0, toOutline: outline) }.min() ?? 0
-        let fromOutline = outline.map { p in
-            hypot(max(rect.minX - p.x, 0, p.x - rect.maxX), max(rect.minY - p.y, 0, p.y - rect.maxY))
-        }.min() ?? 0
-        return min(fromCorners, fromOutline)
-    }
-
     // MARK: Leaves
 
     private static func leaves() {
@@ -75,29 +64,42 @@ enum BloomSelfTest {
         expect(L.radial(1, of: 4) == CGVector(dx: 1, dy: 0), "four leaves: the second at 3 o'clock")
     }
 
-    // MARK: Glass masks
+    // MARK: Slot shapes
 
-    /// The live blur is masked by an image of the leaf. It must be upright: the point at
-    /// the bottom for the leaf at 12 o'clock, the notch at the top.
-    private static func masks() {
-        let bounds = L.leafBounds(0, of: 6)
-        let image = PathEffectBlur.mask(LeafView.localPath(0, 6), key: "self-test leaf 0 of 6")
-        let w = Int(bounds.width.rounded(.up)), h = Int(bounds.height.rounded(.up))
-        var pixels = [UInt8](repeating: 0, count: w * h * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-                  let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
-            context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-            return true
+    /// Each slot is a clover leaflet: a narrow base at the centre circle, two lobes reaching
+    /// the rim's inset, and a shallow notch between them, on the slot's axis.
+    private static func slotShapes() {
+        let depth = G.slotOuter - G.slotInner
+        for n in 1...G.maxLeaves {
+            let path = L.leafPath(0, of: n)
+            let outline = L.leafOutline(0, of: n)
+            let radii = outline.map { L.distance($0, .zero) }
+            expect(abs(radii.max()! - G.slotOuter) < 1.5, "\(n) slots: lobes reach \(radii.max()!), want \(G.slotOuter)")
+            expect(radii.min()! >= G.slotInner - 0.5, "\(n) slots: the base \(radii.min()!) stays off the centre circle")
+            let notch = SlotShape.notchDepth(count: n)
+            expect(notch >= 0.10 * depth && notch <= 0.24 * depth, "\(n) slots: notch \(notch) of a \(depth) slot")
+            if n >= 5 { expect(notch <= 0.145 * depth, "\(n) slots: a shallow notch, \(notch / depth)") }
+            // The notch is on the axis at the outer end: in front of it is the leaf, past it isn't.
+            let floor = G.slotOuter - notch
+            expect(path.contains(CGPoint(x: 0, y: -(floor - 5))), "\(n) slots: the leaf runs up to the notch")
+            expect(!path.contains(CGPoint(x: 0, y: -(floor + 3))), "\(n) slots: the notch is open")
+            // The two lobes beside it reach further out than the notch.
+            let lobe = SlotShape.sideAngle(G.slotOuter, count: n) * 0.5
+            for side: CGFloat in [-1, 1] {
+                let r = G.slotOuter - 3
+                expect(path.contains(CGPoint(x: side * r * sin(lobe), y: -r * cos(lobe))), "\(n) slots: lobe \(side) reaches the rim's inset")
+            }
+            // The base is narrower than the broad part: the arc across the slot at each radius.
+            func across(_ r: CGFloat) -> CGFloat {
+                let inside = stride(from: -CGFloat.pi, through: CGFloat.pi, by: 0.002).filter {
+                    path.contains(CGPoint(x: r * sin($0), y: -r * cos($0)))
+                }
+                guard let low = inside.min(), let high = inside.max() else { return 0 }
+                return r * (high - low)
+            }
+            let base = across(G.slotInner + 6), broad = across(G.labelRadius)
+            expect(base > 20 && base < broad * 0.45, "\(n) slots: narrow base \(base) under a broad part \(broad)")
         }
-        expect(drawn, "the leaf mask draws")
-        // Rows run from the top of the image.
-        func alpha(_ x: Int, _ y: Int) -> UInt8 { pixels[(y * w + x) * 4 + 3] }
-        expect(alpha(w / 2, h - 12) > 128, "the mask's point is at the bottom")
-        expect(alpha(w / 2, 4) < 128, "the mask's notch is at the top")
-        expect(alpha(w / 4, h / 3) > 128 && alpha(3 * w / 4, h / 3) > 128, "the mask's lobes are at the top")
     }
 
     // MARK: Geometry
@@ -106,47 +108,55 @@ enum BloomSelfTest {
     private static var titles: [String] = []
 
     private static func geometry() {
-        let size = L.leafBounds(0, of: 6).size
+        let widest = titles.map { BloomStyle.textWidth($0, font: BloomStyle.leafFont) }.max() ?? 0
         for n in 1...G.maxLeaves {
-            // Same leaf for 1 to 6 leaves.
-            let s = L.leafBounds(0, of: n).size
-            expect(abs(s.width - size.width) < 0.5 && abs(s.height - size.height) < 0.5, "leaf size with \(n) leaves: \(s)")
             for i in 0..<n {
                 let path = L.leafPath(i, of: n)
                 let outline = L.leafOutline(i, of: n)
-                // The point is under the hub; the leaf reaches out past it.
-                let tip = CGPoint(x: L.radial(i, of: n).dx * G.leafTip, y: L.radial(i, of: n).dy * G.leafTip)
-                expect(L.distance(tip, .zero) < G.hubSize / 2, "leaf \(i) of \(n) starts under the hub")
-                expect(outline.map { L.distance($0, .zero) }.max()! > G.hubSize / 2 + 60, "leaf \(i) of \(n) reaches out")
-                // The label stands upright inside the leaf, clear of the hub, wide enough.
+                // Inside the band between the centre circle and the rim.
+                let radii = outline.map { L.distance($0, .zero) }
+                expect(radii.min()! >= G.slotInner - 0.5 && radii.max()! <= G.slotOuter + 0.5,
+                       "slot \(i) of \(n) inside the band: \(radii.min()!)...\(radii.max()!)")
+                // Its own sector.
+                expect(L.sector(L.leafCenter(i, of: n), count: n) == i, "slot \(i) of \(n) in its sector")
+                // The label stands upright inside the slot, clear of the hub, wide enough.
                 let label = L.labelBox(i, of: n)
-                let title = CGRect(x: label.minX, y: label.midY + 2, width: label.width, height: label.height / 2 - 2)
-                let icon = CGRect(x: label.midX - 11, y: label.minY, width: 22, height: label.height / 2 - 1)
-                expect(inside(title, path) && inside(icon, path), "leaf \(i) of \(n): label \(label) inside the leaf")
+                let title = CGRect(x: label.minX, y: label.midY - label.height / 4, width: label.width, height: label.height * 3 / 4)
+                let icon = CGRect(x: label.midX - 11, y: label.minY, width: 22, height: label.height / 4)
+                expect(inside(title, path) && inside(icon, path), "slot \(i) of \(n): label \(label) inside the slot")
                 // Every title fits at nine tenths of its size or more (it may shrink to three quarters).
-                let widest = titles.map { BloomStyle.textWidth($0, font: BloomStyle.leafFont) }.max() ?? 0
-                expect(label.width >= 0.9 * widest, "leaf \(i) of \(n): label width \(label.width) for titles up to \(widest)")
+                expect(label.width >= 0.9 * widest, "slot \(i) of \(n): label width \(label.width) for titles up to \(widest)")
                 let nearest = CGPoint(x: min(max(0, label.minX), label.maxX), y: min(max(0, label.minY), label.maxY))
-                expect(L.distance(nearest, .zero) > G.hubSize / 2, "leaf \(i) of \(n): label clear of the hub")
-                // No two leaves overlap.
+                expect(L.distance(nearest, .zero) > G.hubSize / 2 + 2, "slot \(i) of \(n): label clear of the hub")
+                expect(abs(L.distance(label.mid, .zero) - G.labelRadius) < 26, "slot \(i) of \(n): label near 72 % of the radius")
+                // No two slots overlap; neighbours keep the gap, so the disc's glass shows between them.
                 for j in 0..<n where j > i {
                     let other = L.leafPath(j, of: n)
-                    expect(!outline.contains { other.contains($0) }, "leaves \(i) and \(j) of \(n) don't overlap")
+                    expect(!outline.contains { other.contains($0) }, "slots \(i) and \(j) of \(n) don't overlap")
+                }
+                if n >= 3 {
+                    let next = L.leafOutline((i + 1) % n, of: n)
+                    let gap = outline.map { L.distance($0, toOutline: next) }.min()!
+                    // Six and five pack at the gap; fewer, wider leaves keep a little more air.
+                    let most: CGFloat = n >= 5 ? G.slotGap + 3.5 : (n == 4 ? G.slotGap + 6 : G.slotGap + 22)
+                    expect(gap >= G.slotGap - 0.75 && gap < most, "slots \(i) and \(i + 1) of \(n): gap \(gap)")
+                }
+                // The midrib stays inside the slot and off the label.
+                for (a, b) in L.midrib(i, of: n) {
+                    expect(path.contains(a) && path.contains(b), "slot \(i) of \(n): midrib inside")
+                    let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+                    expect(!label.contains(mid), "slot \(i) of \(n): midrib off the label")
                 }
             }
-        }
-        // Six leaves nearly touch, like a clover.
-        let dense = { (i: Int) in HeartLeaf.polygon(steps: 200).map { $0.applying(L.leafTransform(i, of: 6)) } }
-        for i in 0..<6 {
-            let a = dense(i), b = dense((i + 1) % 6)
-            let gap = a.map { p in L.distance(p, toOutline: b) }.min()!
-            expect(gap > 0.5 && gap < 6, "leaves \(i) and \(i + 1) of 6 nearly touch: gap \(gap)")
         }
         let half = G.panelSize / 2
         let panel = CGRect(x: -half, y: -half, width: G.panelSize, height: G.panelSize)
         let extent = BloomController.extent
         expect(panel.insetBy(dx: 4, dy: 4).contains(extent), "worst-case content \(extent) fits the panel")
-        expect(extent.width > 2 * L.leafReach, "extent covers the leaves")
+        expect(extent.width >= 2 * G.discRadius, "extent covers the disc")
+        expect(G.discRadius * 2 == 360 && abs(G.hubSize / (G.discRadius * 2) - 0.33) < 0.01, "a 360 pt disc, a third of it the centre")
+        expect(G.labelRadius == 130, "labels at 72 % of the radius")
+        expect(Motion.Open.ringTo > G.discRadius && Motion.Open.ringTo < half, "the ring of light passes the rim and stays in the panel")
     }
 
     // MARK: Chips
@@ -177,10 +187,8 @@ enum BloomSelfTest {
                     for (i, frame) in frames.enumerated() {
                         expect(panel.insetBy(dx: G.shadowMargin, dy: G.shadowMargin).contains(frame),
                                "\(n) leaves, leaf \(leaf): chip \(titles[i]) inside the panel: \(frame)")
-                        for other in 0..<n {
-                            let c = clearance(frame, L.leafOutline(other, of: n), L.leafPath(other, of: n))
-                            expect(c >= 4, "\(n) leaves, leaf \(leaf): chip \(titles[i]) clears leaf \(other) by \(c)")
-                        }
+                        let c = L.nearest(frame) - G.discRadius
+                        expect(c >= G.chipClearance - 0.75, "\(n) slots, slot \(leaf): chip \(titles[i]) clears the disc by \(c)")
                         if i > 0 {
                             let prev = frames[i - 1]
                             let apart = max(frame.minX - prev.maxX, prev.minX - frame.maxX, frame.minY - prev.maxY, prev.minY - frame.maxY)
@@ -200,63 +208,62 @@ enum BloomSelfTest {
 
     private static func hitTesting() {
         for n in 1...G.maxLeaves {
-            // Every point: the hub, the leaf whose real outline holds it, or nothing once
-            // it is past the slop from every leaf.
+            // Every point: the hub, the slot whose sector holds it out to the disc's edge
+            // (its gaps and rim included), or nothing beyond.
             var wrong = 0
-            for x in stride(from: -170.0, through: 170.0, by: 5) {
-                for y in stride(from: -170.0, through: 170.0, by: 5) {
+            for x in stride(from: -220.0, through: 220.0, by: 5) {
+                for y in stride(from: -220.0, through: 220.0, by: 5) {
                     let p = CGPoint(x: x, y: y)
                     let hit = L.hit(p, count: n, open: nil, chips: [])
-                    if L.distance(p, .zero) <= G.hubSize / 2 {
+                    let r = L.distance(p, .zero)
+                    if r <= G.hubSize / 2 {
                         if hit != .hub { wrong += 1 }
-                        continue
-                    }
-                    if let owner = (0..<n).first(where: { L.leafPath($0, of: n).contains(p) }) {
-                        if hit != .leaf(owner) { wrong += 1 }
-                    } else if (0..<n).allSatisfy({ L.distance(p, toOutline: L.leafOutline($0, of: n)) > G.leafHitSlop + 0.5 }) {
+                    } else if r > G.hubSize / 2 + G.slotInset && r <= G.discRadius {
+                        if hit != .leaf(L.sector(p, count: n)) { wrong += 1 }
+                        // A point on a slot's drawn shape hits that slot.
+                        if let owner = (0..<n).first(where: { L.leafPath($0, of: n).contains(p) }), hit != .leaf(owner) { wrong += 1 }
+                    } else if r > G.discRadius + G.leafHitSlop {
                         if hit != .none { wrong += 1 }
                     }
                 }
             }
-            expect(wrong == 0, "\(n) leaves: \(wrong) points hit the wrong thing")
+            expect(wrong == 0, "\(n) slots: \(wrong) points hit the wrong thing")
             for leaf in 0..<n {
-                expect(L.hit(center(L.labelBox(leaf, of: n)), count: n, open: nil, chips: []) == .leaf(leaf), "label of leaf \(leaf) of \(n)")
+                expect(L.hit(center(L.labelBox(leaf, of: n)), count: n, open: nil, chips: []) == .leaf(leaf), "label of slot \(leaf) of \(n)")
+                // The notch and the rim beyond a slot are still that slot.
+                expect(L.hit(notchPoint(leaf, n), count: n, open: nil, chips: []) == .leaf(leaf), "notch of slot \(leaf) of \(n)")
+                let r = L.radial(leaf, of: n)
+                let rim = CGPoint(x: r.dx * (G.discRadius - 4), y: r.dy * (G.discRadius - 4))
+                expect(L.hit(rim, count: n, open: nil, chips: []) == .leaf(leaf), "rim beyond slot \(leaf) of \(n)")
             }
         }
-        // The notch between a leaf's lobes is not the leaf, unless its chips are open.
-        let r = L.radial(0, of: 6)
-        let notch = CGPoint(x: r.dx * (G.leafTip + 0.88 * G.leafSize), y: r.dy * (G.leafTip + 0.88 * G.leafSize))
-        expect(!L.leafPath(0, of: 6).contains(notch), "the notch is outside the leaf")
-        expect(L.hit(notch, count: 6, open: nil, chips: []) == .none, "the notch is nothing")
         expect(L.hit(.zero, count: 6, open: nil, chips: []) == .hub, "hub")
-        expect(L.hit(CGPoint(x: 300, y: 0), count: 6, open: nil, chips: []) == .none, "far away")
+        expect(L.hit(CGPoint(x: 120, y: 0), count: 0, open: nil, chips: []) == .none, "no slots: the disc is nothing")
+        expect(L.hit(CGPoint(x: 290, y: 0), count: 6, open: nil, chips: []) == .none, "far away")
 
         for n in [3, 4, 5, 6] {
             for leaf in 0..<n {
                 let chips = L.chipFrames(leaf, of: n, widths: widths(["Best", "Balanced", "Small"]))
                 for (i, frame) in chips.enumerated() {
                     expect(L.hit(center(frame), count: n, open: leaf, chips: chips) == .chip(leaf: leaf, index: i),
-                           "chip \(i) of open leaf \(leaf) of \(n)")
+                           "chip \(i) of open slot \(leaf) of \(n)")
                     expect(L.hit(center(frame), count: n, open: nil, chips: []) == .none, "closed chips don't react")
                 }
-                // The gap between the leaf and its chips keeps the leaf.
+                // The gap between the disc and its chips keeps the slot.
                 let r = L.radial(leaf, of: n)
-                let gap = L.leafReach + G.chipClearance / 2
+                let gap = G.discRadius + G.leafHitSlop + 1
                 let gapPoint = CGPoint(x: r.dx * gap, y: r.dy * gap)
-                expect(L.hit(gapPoint, count: n, open: leaf, chips: chips) == .leaf(leaf), "gap to chips keeps leaf \(leaf) of \(n)")
-                expect(L.hit(notchPoint(leaf, n), count: n, open: leaf, chips: chips) == .leaf(leaf), "notch of open leaf \(leaf) of \(n) keeps it")
+                expect(L.hit(gapPoint, count: n, open: leaf, chips: chips) == .leaf(leaf), "gap to chips keeps slot \(leaf) of \(n)")
                 if chips.count > 1 {
                     let mid = CGPoint(x: (chips[0].midX + chips[1].midX) / 2, y: (chips[0].midY + chips[1].midY) / 2)
                     expect(L.hit(mid, count: n, open: leaf, chips: chips).leaf == leaf, "between chips of \(leaf) stays on it")
                 }
-                let far = CGPoint(x: r.dx * 245, y: r.dy * 245)
+                let far = CGPoint(x: r.dx * 292, y: r.dy * 292)
                 expect(L.hit(far, count: n, open: leaf, chips: chips) == .none, "beyond chips of \(leaf) of \(n)")
-                // A neighbouring leaf wins over the open leaf's band.
+                // A neighbouring slot wins over the open slot's band.
                 let next = (leaf + 1) % n
-                if next != leaf {
-                    expect(L.hit(center(L.labelBox(next, of: n)), count: n, open: leaf, chips: chips) == .leaf(next),
-                           "neighbour \(next) over open \(leaf) of \(n)")
-                }
+                expect(L.hit(center(L.labelBox(next, of: n)), count: n, open: leaf, chips: chips) == .leaf(next),
+                       "neighbour \(next) over open \(leaf) of \(n)")
             }
         }
 
@@ -268,7 +275,7 @@ enum BloomSelfTest {
 
     private static func notchPoint(_ leaf: Int, _ n: Int) -> CGPoint {
         let r = L.radial(leaf, of: n)
-        let d = G.leafTip + 0.88 * G.leafSize
+        let d = G.slotOuter - SlotShape.notchDepth(count: n) / 2
         return CGPoint(x: r.dx * d, y: r.dy * d)
     }
 
@@ -299,8 +306,10 @@ enum BloomSelfTest {
         let left = L.clampedCenter(CGPoint(x: 10, y: 420), bounds: bounds, visible: main)
         expect(left.y == 420 && left.x == (-bounds.minX).rounded(), "left edge moves x only: \(left)")
         // A screen smaller than the clover centres it.
-        let tiny = CGRect(x: 0, y: 0, width: 300, height: 300)
-        expect(L.clampedCenter(CGPoint(x: 5, y: 5), bounds: bounds, visible: tiny) == CGPoint(x: 150, y: 150), "tiny screen")
+        let tiny = CGRect(x: 0, y: 0, width: 400, height: 400)
+        expect(L.clampedCenter(CGPoint(x: 5, y: 5), bounds: bounds, visible: tiny) == CGPoint(x: 200, y: 200), "tiny screen")
+        // The smallest Mac screen in use still fits the whole clover, chips included.
+        expect(bounds.width <= 1280 - 16 && bounds.height <= 800 - 40, "the clover fits a 1280 x 800 screen: \(bounds.size)")
     }
 
     // MARK: More tray
@@ -347,15 +356,15 @@ enum BloomSelfTest {
         let size = TrayLayout.size(count: 9, pillWidth: w, chipRow: widest)
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)
         func place(_ c: CGPoint, _ visible: CGRect) -> (tray: CGRect, more: CGRect) {
-            let more = L.screenRect(L.leafBounds(5, of: 6), center: c)
+            let more = L.screenRect(L.sectorBounds(5, of: 6), center: c)
             return (TrayLayout.frame(size: size, more: more, clover: c, visible: visible), more)
         }
         let roomyCenter = CGPoint(x: 800, y: 400)
         let (roomy, roomyMore) = place(roomyCenter, screen)
         expect(roomy.maxX <= roomyMore.minX - TrayLayout.leafGap + 0.5, "More is on the left, so the tray is left of it: \(roomy)")
         expect(abs((roomy.minY + TrayLayout.overhang + size.height / 2) - roomyMore.midY) <= 1, "the tray is centred on More")
-        let outlines = (0..<6).flatMap { i in L.leafOutline(i, of: 6).map { CGPoint(x: roomyCenter.x + $0.x, y: roomyCenter.y - $0.y) } }
-        expect(!outlines.contains { roomy.contains($0) }, "with room, the tray covers no leaf")
+        let nearestToClover = CGPoint(x: min(max(roomyCenter.x, roomy.minX), roomy.maxX), y: min(max(roomyCenter.y, roomy.minY), roomy.maxY))
+        expect(L.distance(nearestToClover, roomyCenter) >= G.discRadius, "with room, the tray covers no part of the disc")
         expect(roomy.height == size.height + TrayLayout.overhang, "the tray's frame has room for chips under its last row")
         let edges: [(CGPoint, CGRect)] = [
             (L.clampedCenter(CGPoint(x: 0, y: 875), bounds: BloomController.extent, visible: screen), screen),
@@ -400,12 +409,13 @@ enum BloomSelfTest {
         let arrangement = LeafArranger.arrange(targets, layout: nil)
         let m = BloomModel()
         m.chipDelay = 0
+        m.hoverDelay = 0
         m.reset(mode: .click)
         m.setFiles([png], arrangement: arrangement)
         expect(arrangement.leaves.count == 5 && !arrangement.more.isEmpty, "a PNG has five leaves and More")
         expect(m.leafCount == 6 && m.moreIndex == 5 && m.isMore(5) && m.leaves.last == .more, "More is the sixth leaf")
         expect(m.target(at: 0)?.id == arrangement.leaves[0].id, "the first leaf is the first target")
-        expect(m.hint == "photo.png", "one file's hint is its name")
+        expect(m.hint == "photo.png", "one file without a size: its name")
 
         // The user's order decides the leaves.
         let mine = LeafArranger.arrange(targets, layout: LeafLayout(order: ["webp", "pdf"], hidden: ["jpg"]))
@@ -446,7 +456,7 @@ enum BloomSelfTest {
         m.pointer(at: moreLabel)
         try? await Task.sleep(nanoseconds: 150_000_000)
         expect(!m.trayOpen, "in click mode, resting on More doesn't open the tray")
-        expect(m.hint == "\(arrangement.more.count) more formats", "More's hint: \(m.hint)")
+        expect(m.hint == "\(arrangement.more.count) more", "More's hint: \(m.hint)")
         m.toggleTray()
         expect(m.trayOpen && m.litLeaf == 5, "clicking More opens the tray, More lit")
         m.toggleTray()
@@ -555,13 +565,135 @@ enum BloomSelfTest {
         expect(m.isMixed && m.summary == "2 files", "mixed summary: \(m.summary)")
         expect(m.arrangement.all.contains { $0.id == "zip" }, "mixed files can still be zipped")
         m.setFiles([png], arrangement: Arrangement(leaves: [], more: []))
-        expect(m.hint == "Clover can't convert these" && m.leaves.isEmpty, "no targets: hub only")
+        expect(m.hint == "Can't convert" && m.leaves.isEmpty, "no targets: hub only")
         m.focusNumber(1)
         m.tab(forward: true)
         m.moveFocus(by: 1)
         expect(m.focus == nil, "no leaves, no focus")
         m.reset(mode: .drag)
         expect(!m.hasFiles && m.hint.isEmpty && m.leaves.isEmpty, "a drag not yet over the clover shows the hub only")
+
+        // The rest before a slot lights, then the light moves with the pointer.
+        var now: TimeInterval = 5000
+        var ticks = 0
+        let r = BloomModel()
+        r.clock = { now }
+        r.chipDelay = 0
+        r.hoverDelay = 0.05
+        r.onLight = { ticks += 1 }
+        r.reset(mode: .drag)
+        r.setFiles([png], arrangement: arrangement)
+        r.open()
+        expect(r.events.openedAt == 5000 && r.events.slotsAt == 5000, "opening stamps the disc and the slots")
+        r.pointer(at: center(L.labelBox(0, of: 6)))
+        expect(r.hover == .leaf(0) && r.litLeaf == nil && r.choice(at: r.hover) != nil, "a drop goes at once; the light waits")
+        now += 0.1
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        expect(r.litLeaf == 0 && r.events.lit == 0 && r.events.litAt == now && ticks == 1, "after the rest, the slot lights with a tick")
+        expect(r.events.ripples.last == BloomEvents.Ripple(slot: 0, at: now), "one ripple leaves its outline")
+        r.pointer(at: center(L.labelBox(1, of: 6)))
+        expect(r.litLeaf == 0, "moving on, the light stays until the next rest")
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        expect(r.litLeaf == 1 && r.events.unlit == 0, "then it moves")
+        r.pointer(at: .zero)
+        expect(r.litLeaf == nil && r.events.lit == nil, "off the slots it goes at once")
+        // Drop: input stops and the chosen slot carries it.
+        r.pointer(at: center(L.labelBox(2, of: 6)))
+        now += 1
+        r.drop()
+        expect(r.phase == .dropping && r.events.drop?.slot == 2 && r.events.drop?.at == now, "the drop is stamped on its slot")
+        r.pointer(at: center(L.labelBox(3, of: 6)))
+        expect(r.hover == .leaf(2), "no input while carrying")
+        r.reset(mode: .drag)
+        expect(r.phase == .open && r.events.drop == nil && !r.animating, "reset for the next clover")
+        r.setFiles([png], arrangement: arrangement)
+        r.open()
+        r.cancel()
+        expect(r.phase == .closing && r.events.cancelAt == now, "cancel is stamped")
+        r.drop()
+        expect(r.events.drop == nil, "no drop after a cancel")
+    }
+
+    // MARK: Motion
+
+    /// The curves keep the house rules: fast attack, no overshoot, the pop, exits faster.
+    private static func motion() {
+        typealias M = Motion
+        let at140 = M.settle(0.140 / M.Open.slot)
+        expect(abs(at140 - 0.75) < 0.02, "75 % of the way at 140 ms of 300: \(at140)")
+        var last = 0.0
+        var overshoot = false
+        for i in 0...100 {
+            let v = M.settle(Double(i) / 100)
+            if v < last - 1e-9 || v > 1 + 1e-9 { overshoot = true }
+            last = v
+        }
+        expect(!overshoot && M.settle(1) == 1 && M.settle(0) == 0, "settle never overshoots")
+        expect(M.exit(0) == 0 && M.exit(1) == 1 && M.exit(0.5) < 0.5, "exits accelerate away")
+        expect(M.Cancel.duration < M.Open.slot && M.Chips.leave < M.Chips.settle + 0.02 && M.Tray.close < M.Tray.settle,
+               "exits are faster than entrances")
+
+        var e = BloomEvents()
+        e.openedAt = 0
+        e.slotsAt = 0
+        let c = CGPoint(x: 0, y: -115)
+        let born = M.slot(0, count: 6, center: c, e, now: 0).look
+        expect(born.blur == M.Open.slotBlur && born.scale == M.Open.slotFrom && born.opacity == 0, "slots are born blurred, near the hub")
+        let settledSlot = M.slot(0, count: 6, center: c, e, now: 1).look
+        expect(settledSlot == .still, "and settle sharp, in place")
+        let third = M.slot(2, count: 6, center: c, e, now: 0.3).look
+        expect(third.scale < 1, "staggered clockwise: the third slot is still unfolding at 300 ms")
+        expect(M.disc(e, now: 0).scale == M.Open.discFrom && M.disc(e, now: 0.3).scale == 1, "the disc grows from 85 %")
+        expect(M.lightRing(e, now: 0.25) != nil && M.lightRing(e, now: 0.5) == nil, "the ring of light lasts 500 ms")
+
+        e.lit = 1
+        e.litAt = 2
+        e.dimAt = 2
+        let pops = stride(from: 2.0, through: 2.3, by: 0.005).map { M.litScale(e, now: $0) }
+        expect(abs(pops.max()! - M.Hover.peak) < 0.002 && pops.last! == M.Hover.rest, "the lit slot pops to 108 % and rests at 104 %")
+        let (litLook, litFill) = M.slot(1, count: 6, center: c, e, now: 2.002)
+        expect(litFill == .lit && litLook.blur == 0, "the lit flip is instant, with no fade")
+        let other = M.slot(0, count: 6, center: c, e, now: 3).look
+        expect(other.opacity < 0.8 && other.blur == M.Hover.dimBlur, "the others dim and soften")
+        let g1 = M.glow(e, now: 2.6)!, g2 = M.glow(e, now: 3.8)!
+        expect(abs(g1.scale - g2.scale) > 0.03, "the glow breathes")
+        expect(M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.2) != nil && M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.46) == nil,
+               "one ripple, 450 ms")
+
+        e.chipsLeaf = 1
+        e.chipsAt = 4
+        e.chipRank = [1, 0, 2]
+        let chip = M.chipIn(rank: 0, since: e.chipsAt, e, now: 4)
+        expect(chip.blur == M.Chips.bornBlur && chip.scale == M.Chips.bornScale, "chips are born at 20 px and 110 %")
+        expect(M.chipIn(rank: 2, since: e.chipsAt, e, now: 4.13).blur > 0 && M.chipIn(rank: 0, since: e.chipsAt, e, now: 4.131).blur == 0,
+               "chips sharpen in 130 ms, 20 ms apart")
+
+        e.drop = BloomEvents.Drop(at: 6, slot: 1, chip: nil, pill: nil)
+        expect(M.slot(1, count: 6, center: c, e, now: 6).fill == .flash && M.slot(1, count: 6, center: c, e, now: 6.02).fill == .lit,
+               "the chosen slot flashes white for one frame")
+        let folded = M.slot(0, count: 6, center: c, e, now: 6 + M.Drop.fold + 0.001)
+        expect(folded.look.opacity == 0, "the others fold away in 140 ms")
+        expect(M.carryRing(e, now: 6.29) == nil && M.carryRing(e, now: 6.31) != nil, "the slot becomes the ring at the hub")
+        let handoff = M.carryRing(e, now: 6 + M.Drop.handoff)!
+        expect(handoff == .still, "at the handoff the ring sits still at the hub, ready for the chip")
+        expect(abs(M.disc(e, now: 6 + M.Drop.handoff).scale - M.Drop.carrySide / (G.discRadius * 2)) < 0.001, "the disc shrinks to the ring's size")
+        let glide = M.slot(1, count: 6, center: c, e, now: 6 + M.Drop.glideDelay + M.Drop.glide - 0.001).look
+        expect(abs(glide.offset.height + c.y) < 0.5, "the chosen slot glides to the hub in 250 ms")
+
+        var r = BloomEvents()
+        r.reduce = true
+        r.openedAt = 0
+        r.slotsAt = 0
+        let half = M.slot(0, count: 6, center: c, r, now: M.fade / 2).look
+        expect(half.scale == 1 && half.blur == 0 && half.offset == .zero && half.opacity > 0.3, "reduce motion: slots fade in place")
+        expect(M.lightRing(r, now: 0.1) == nil, "reduce motion: no ring of light")
+        r.lit = 0
+        r.litAt = 1
+        expect(M.slot(0, count: 6, center: c, r, now: 1.01).look.scale == 1 && M.slot(0, count: 6, center: c, r, now: 1.01).fill == .lit,
+               "reduce motion: the slot lights without a pop")
+        expect(M.ripple(BloomEvents.Ripple(slot: 0, at: 1), r, now: 1.1) == nil, "reduce motion: no ripple")
+        let still1 = M.glow(r, now: 2)!, still2 = M.glow(r, now: 3)!
+        expect(still1.scale == still2.scale && still1.opacity == still2.opacity && still1.opacity == 1, "reduce motion: the glow is lit and still")
     }
 
     // MARK: Chip texts

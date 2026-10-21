@@ -74,6 +74,7 @@ final class BloomInteractionView: NSView {
     // MARK: Drag and drop
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard model.phase == .open else { return [] }
         let files = BloomInteractionView.fileURLs(in: sender.draggingPasteboard)
         if !files.isEmpty, !model.hasFiles || files != model.files {
             delegate?.bloomReceivedFiles(files)
@@ -82,6 +83,7 @@ final class BloomInteractionView: NSView {
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard model.phase == .open else { return [] }
         model.pointer(at: bloomPoint(sender.draggingLocation))
         return model.choice(at: model.hover) == nil ? [] : .copy
     }
@@ -91,12 +93,13 @@ final class BloomInteractionView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard model.phase == .open else { return false }
         model.pointer(at: bloomPoint(sender.draggingLocation))
         return model.choice(at: model.hover) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let choice = model.choice(at: model.hover) else { return false }
+        guard model.phase == .open, let choice = model.choice(at: model.hover) else { return false }
         delegate?.bloomChose(choice.target, option: choice.option)
         return true
     }
@@ -138,6 +141,7 @@ final class BloomInteractionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard model.phase == .open else { return }
         model.pointer(at: bloomPoint(event.locationInWindow))
         let hit = model.hover
         defer { downHit = nil }
@@ -154,6 +158,7 @@ final class BloomInteractionView: NSView {
     // MARK: Keys (click mode)
 
     override func keyDown(with event: NSEvent) {
+        guard model.phase == .open else { return }
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
         case 53: // Esc
@@ -245,6 +250,7 @@ final class TrayInteractionView: NSView {
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard model.phase == .open else { return [] }
         model.trayPointer(at: trayPoint(sender.draggingLocation))
         return model.trayChoice(at: model.trayHover) == nil ? [] : .copy
     }
@@ -254,12 +260,13 @@ final class TrayInteractionView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard model.phase == .open else { return false }
         model.trayPointer(at: trayPoint(sender.draggingLocation))
         return model.trayChoice(at: model.trayHover) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let choice = model.trayChoice(at: model.trayHover) else { return false }
+        guard model.phase == .open, let choice = model.trayChoice(at: model.trayHover) else { return false }
         delegate?.bloomChose(choice.target, option: choice.option)
         return true
     }
@@ -295,6 +302,7 @@ final class TrayInteractionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard model.phase == .open else { return }
         model.trayPointer(at: trayPoint(event.locationInWindow))
         let hit = model.trayHover
         defer { downHit = nil }
