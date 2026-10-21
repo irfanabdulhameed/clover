@@ -214,8 +214,9 @@ final class ResultHUD {
 @MainActor
 final class ChipStackState: ObservableObject {
     @Published var chips: [ResultChip] = []
-    /// The clock, in `CACurrentMediaTime` seconds. Every chip reads its own time from it.
-    @Published var tick: CFTimeInterval = CACurrentMediaTime()
+    /// True while anything moves. The view then redraws every frame, reading the time
+    /// from `CACurrentMediaTime`; when false the timeline pauses.
+    @Published var animating = false
     /// The column grows downward from the first chip, or upward when there is no room below.
     @Published var downward = true
     @Published var leafStyle = LeafStyle.clover
@@ -229,12 +230,17 @@ struct ChipStackView: View {
         let align: Alignment = stack.downward ? .top : .bottom
         let step = ChipMotion.chipSize.height + ChipStackLayout.gap
         ChipGlassContainer {
-            ZStack(alignment: align) {
-                ForEach(stack.chips) { chip in
-                    let t = stack.tick - chip.born
-                    ResultChipView(state: chip.state, actions: chip.actions,
-                                   values: chip.playback.values(at: t), clover: stack.leafStyle == .clover)
-                        .offset(y: CGFloat(chip.playback.slot(at: t)) * step * (stack.downward ? 1 : -1))
+            // The same frame clock the clover uses. A display link tied to this window
+            // didn't run, which froze chips half way through their entrance.
+            TimelineView(.animation(minimumInterval: nil, paused: !stack.animating)) { _ in
+                let now = CACurrentMediaTime()
+                ZStack(alignment: align) {
+                    ForEach(stack.chips) { chip in
+                        let t = now - chip.born
+                        ResultChipView(state: chip.state, actions: chip.actions,
+                                       values: chip.playback.values(at: t), clover: stack.leafStyle == .clover)
+                            .offset(y: CGFloat(chip.playback.slot(at: t)) * step * (stack.downward ? 1 : -1))
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: align)
@@ -243,35 +249,41 @@ struct ChipStackView: View {
     }
 }
 
-/// Runs the chips' clock in step with the screen while anything moves, and stops when
-/// everything has settled.
+/// Keeps the chips' timeline running while anything moves, and pauses it once everything
+/// has settled. It only checks; the drawing follows SwiftUI's animation timeline.
 @MainActor
 final class ChipDriver: NSObject {
     private let stack: ChipStackState
-    private var link: CADisplayLink?
+    private var timer: Timer?
 
     init(stack: ChipStackState, view: NSView) {
         self.stack = stack
         super.init()
-        let link = view.displayLink(target: self, selector: #selector(step(_:)))
-        link.add(to: .main, forMode: .common)
-        self.link = link
     }
 
     func wake() {
-        stack.tick = CACurrentMediaTime()
-        link?.isPaused = false
+        stack.animating = true
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.check() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func stop() {
-        link?.invalidate()
-        link = nil
+        timer?.invalidate()
+        timer = nil
+        stack.animating = false
     }
 
-    @objc private func step(_ link: CADisplayLink) {
+    private func check() {
         let now = CACurrentMediaTime()
-        stack.tick = now
-        if stack.chips.allSatisfy({ $0.playback.isSettled(at: now - $0.born) }) { link.isPaused = true }
+        if stack.chips.allSatisfy({ $0.playback.isSettled(at: now - $0.born) }) {
+            timer?.invalidate()
+            timer = nil
+            stack.animating = false
+        }
     }
 }
 

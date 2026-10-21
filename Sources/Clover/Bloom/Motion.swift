@@ -28,7 +28,9 @@ enum Motion {
         /// The size capsule follows a beat later.
         static let capsuleDelay: TimeInterval = 0.07
         static let capsule: TimeInterval = 0.20
-        /// The ring of light that radiates from the pointer, like AirDrop's radar.
+        /// The ring of light that radiates from the pointer. Off for now: Irfan wants a
+        /// different AirDrop effect, to be designed in the animation pass.
+        static let ringEnabled = false
         static let ring: TimeInterval = 0.50
         static let ringFrom: CGFloat = 40
         static let ringTo: CGFloat = 250
@@ -47,7 +49,8 @@ enum Motion {
         static let rest: CGFloat = 1.04
         /// A slot going dark returns to its size, faster than it popped.
         static let leave: TimeInterval = 0.07
-        /// One ripple of light leaves the lit slot's outline.
+        /// One ripple of light leaves the lit slot's outline. Off for now, like the ring.
+        static let rippleEnabled = false
         static let ripple: TimeInterval = 0.45
         static let rippleGrow: CGFloat = 0.16
         static let rippleOpacity: Double = 0.75
@@ -291,7 +294,7 @@ extension Motion {
 
     /// The ring of light: its radius, opacity and line width, or nil when it's done.
     static func lightRing(_ e: BloomEvents, now: TimeInterval) -> (radius: CGFloat, opacity: Double, width: CGFloat)? {
-        guard !e.reduce, e.drop == nil, e.cancelAt == nil, e.openedAt.isFinite else { return nil }
+        guard Open.ringEnabled, !e.reduce, e.drop == nil, e.cancelAt == nil, e.openedAt.isFinite else { return nil }
         let t = (now - e.openedAt) / Open.ring
         guard t >= 0, t < 1 else { return nil }
         let p = settle(t)
@@ -366,7 +369,7 @@ extension Motion {
 
     /// A ripple's scale, opacity and line width, or nil when it has gone.
     static func ripple(_ r: BloomEvents.Ripple, _ e: BloomEvents, now: TimeInterval) -> (scale: CGFloat, opacity: Double, width: CGFloat)? {
-        guard !e.reduce, e.drop == nil, e.cancelAt == nil else { return nil }
+        guard Hover.rippleEnabled, !e.reduce, e.drop == nil, e.cancelAt == nil else { return nil }
         let t = (now - r.at) / Hover.ripple
         guard t >= 0, t < 1 else { return nil }
         let p = settle(t)

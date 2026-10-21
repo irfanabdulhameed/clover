@@ -53,6 +53,8 @@ enum ChipMotion {
     /// The words of the result come in after the flip.
     static let resultTextDelay = 0.06
     static let failureTextDelay = 0.20
+    /// The green ripple when a job is done. Off for now, until the animation pass.
+    static let rippleEnabled = false
     static let rippleDuration = 0.50
     /// How far the ripple spreads past the chip's edge.
     static let rippleSpread: CGFloat = 22
@@ -235,7 +237,7 @@ struct ChipPlayback {
         if t < slotAt + ChipMotion.reflowDuration + 0.05 { return false }
         if let ending {
             return t > ending.at + ChipMotion.failureTextDelay + ChipMotion.textDuration + 0.1
-                + (ending.kind == .done ? ChipMotion.rippleDuration : 0)
+                + (ending.kind == .done && ChipMotion.rippleEnabled ? ChipMotion.rippleDuration : 0)
         }
         return abs(displayed(at: t) - target) < 0.0005
     }
@@ -309,7 +311,7 @@ struct ChipPlayback {
                     v.pop = ChipMotion.pop(since)
                     born(since - ChipMotion.resultTextDelay)
                     if since < ChipMotion.resultTextDelay { words = 0 }
-                    if ending.kind == .done, since < ChipMotion.rippleDuration {
+                    if ChipMotion.rippleEnabled, ending.kind == .done, since < ChipMotion.rippleDuration {
                         v.ripple = since / ChipMotion.rippleDuration
                     }
                 }

@@ -674,7 +674,7 @@ enum BloomSelfTest {
         let third = M.slot(2, count: 6, center: c, e, now: 0.3).look
         expect(third.scale < 1, "staggered clockwise: the third slot is still unfolding at 300 ms")
         expect(M.disc(e, now: 0).scale == M.Open.discFrom && M.disc(e, now: 0.3).scale == 1, "the disc grows from 85 %")
-        expect(M.lightRing(e, now: 0.25) != nil && M.lightRing(e, now: 0.5) == nil, "the ring of light lasts 500 ms")
+        expect((M.lightRing(e, now: 0.25) != nil) == M.Open.ringEnabled && M.lightRing(e, now: 0.5) == nil, "the ring of light lasts 500 ms, when it's on")
 
         e.lit = 1
         e.litAt = 2
@@ -687,8 +687,9 @@ enum BloomSelfTest {
         expect(abs(other.opacity - M.Hover.dimOpacity) < 0.001 && other.blur == M.Hover.dimBlur, "the others dim and soften")
         let g1 = M.glow(e, now: 2.6)!, g2 = M.glow(e, now: 3.8)!
         expect(abs(g1.scale - g2.scale) > 0.03, "the glow breathes")
-        expect(M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.2) != nil && M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.46) == nil,
-               "one ripple, 450 ms")
+        expect((M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.2) != nil) == M.Hover.rippleEnabled
+               && M.ripple(BloomEvents.Ripple(slot: 1, at: 2), e, now: 2.46) == nil,
+               "one ripple, 450 ms, when it's on")
 
         e.chipsLeaf = 1
         e.chipsAt = 4
