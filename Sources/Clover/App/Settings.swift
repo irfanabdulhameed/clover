@@ -22,6 +22,36 @@ enum TriggerKey: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the clover's glass is coloured.
+enum LeafStyle: String, CaseIterable, Identifiable {
+    /// Glass with a soft clover-green tint.
+    case clover
+    /// Clear glass.
+    case clear
+
+    var id: String { rawValue }
+    var title: String { self == .clover ? "Clover green" : "Clear glass" }
+}
+
+/// Whether Clover animates.
+enum MotionPreference: String, CaseIterable, Identifiable {
+    /// Follow System Settings → Accessibility → Display → Reduce motion.
+    case system
+    /// Full motion.
+    case full
+    /// Fades only, nothing travels.
+    case reduced
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: "Follow the system"
+        case .full: "Full"
+        case .reduced: "Reduced"
+        }
+    }
+}
+
 /// A global keyboard shortcut. `modifiers` uses Carbon's flags (cmdKey, optionKey, ...).
 struct Hotkey: Codable, Equatable {
     var keyCode: UInt32
@@ -62,6 +92,33 @@ final class Settings: ObservableObject {
         didSet { defaults.set(revealAfterConverting, forKey: "revealAfterConverting") }
     }
 
+    @Published var leafStyle: LeafStyle {
+        didSet { defaults.set(leafStyle.rawValue, forKey: "leafStyle") }
+    }
+
+    @Published var motion: MotionPreference {
+        didSet { defaults.set(motion.rawValue, forKey: "motion") }
+    }
+
+    /// Trackpad taps on hover, drop and finish.
+    @Published var haptics: Bool {
+        didSet { defaults.set(haptics, forKey: "haptics") }
+    }
+
+    /// A soft sound when a conversion finishes.
+    @Published var completionSound: Bool {
+        didSet { defaults.set(completionSound, forKey: "completionSound") }
+    }
+
+    /// True when motion should be reduced, from the setting or the system.
+    var reduceMotion: Bool {
+        switch motion {
+        case .system: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        case .full: false
+        case .reduced: true
+        }
+    }
+
     /// The user's clover for each kind of file.
     @Published var layouts: [LayoutKey: LeafLayout] {
         didSet { save(layouts, "layouts") }
@@ -78,6 +135,10 @@ final class Settings: ObservableObject {
         holdToOpen = defaults.object(forKey: "holdToOpen") as? Bool ?? true
         hotkey = defaults.object(forKey: "hotkey") == nil ? .standard : Settings.load(Hotkey.self, "hotkey")
         revealAfterConverting = defaults.bool(forKey: "revealAfterConverting")
+        leafStyle = LeafStyle(rawValue: defaults.string(forKey: "leafStyle") ?? "") ?? .clover
+        motion = MotionPreference(rawValue: defaults.string(forKey: "motion") ?? "") ?? .system
+        haptics = defaults.object(forKey: "haptics") as? Bool ?? true
+        completionSound = defaults.object(forKey: "completionSound") as? Bool ?? true
         layouts = Settings.load([LayoutKey: LeafLayout].self, "layouts") ?? [:]
         conversion = Settings.load(ConversionSettings.self, "conversion") ?? ConversionSettings()
     }
