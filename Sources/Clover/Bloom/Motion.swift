@@ -51,8 +51,14 @@ enum Motion {
         /// Off: the lit slot flips to green with no pop, and has no glow or breathing.
         static let popEnabled = false
         static let glowEnabled = false
-        /// Off: the other slots dim at once.
-        static let dimAnimated = false
+        /// The other slots dim smoothly.
+        static let dimAnimated = true
+        /// Hover fades in and out instead of switching (Irfan, 21 Oct 2026: "smoothen it").
+        /// The bright fill eases in over `fadeIn`, out over `fadeOut`, and the slot lifts.
+        static let smooth = true
+        static let fadeIn: TimeInterval = 0.16
+        static let fadeOut: TimeInterval = 0.12
+        static let lift: CGFloat = 1.03
         /// The lit flip pops to `peak`, then settles at `rest`.
         static let popRise: TimeInterval = 0.03
         static let popSettle: TimeInterval = 0.09
@@ -70,8 +76,8 @@ enum Motion {
         static let breathAmount: CGFloat = 0.03
         static let glowIn: TimeInterval = 0.16
         /// The other slots dim and soften.
-        static let dim: TimeInterval = 0.12
-        static let undim: TimeInterval = 0.09
+        static let dim: TimeInterval = 0.16
+        static let undim: TimeInterval = 0.12
         static let dimOpacity: Double = 0.85
         /// No blur on the dimmed slots (it was 1.5, then 0.8).
         static let dimBlur: CGFloat = 0
@@ -391,6 +397,7 @@ extension Motion {
         }
         var look = unfold(i, center: center, e, now: now)
         let fill: SlotFill = e.lit == i ? .lit : .frosted
+        if Hover.smooth, !e.reduce { look.scale *= lerp(1, Hover.lift, litAmount(i, e, now: now)) }
         if e.lit == i {
             if Hover.popEnabled, !e.reduce { look.scale *= litScale(e, now: now) }
         } else {
@@ -428,6 +435,18 @@ extension Motion {
     }
 
     /// 0 when nothing is lit, 1 when the others are fully dimmed.
+    /// How lit slot `i` is, 0...1: it eases in when lit and out when the pointer leaves.
+    static func litAmount(_ i: Int, _ e: BloomEvents, now: TimeInterval) -> Double {
+        guard Hover.smooth else { return e.lit == i ? 1 : 0 }
+        if e.lit == i {
+            return e.reduce ? phase(now, e.litAt, fade) : settle(phase(now, e.litAt, Hover.fadeIn))
+        }
+        if e.unlit == i {
+            return 1 - (e.reduce ? phase(now, e.unlitAt, fade) : exit(phase(now, e.unlitAt, Hover.fadeOut)))
+        }
+        return 0
+    }
+
     static func dimAmount(_ e: BloomEvents, now: TimeInterval) -> Double {
         guard Hover.dimAnimated else { return e.lit == nil ? 0 : 1 }
         if e.lit != nil {
@@ -635,6 +654,7 @@ extension Motion {
         if Open.ringEnabled { end = max(end, e.openedAt + Open.ring) }
         if Hover.popEnabled { end = max(end, e.litAt + Hover.popRise + Hover.popSettle, e.unlitAt + Hover.leave) }
         if Hover.dimAnimated { end = max(end, e.dimAt + Hover.dim, e.undimAt + Hover.undim) }
+        if Hover.smooth { end = max(end, e.litAt + Hover.fadeIn, e.unlitAt + Hover.fadeOut) }
         if Hover.rippleEnabled { end = max(end, (e.ripples.map(\.at).max() ?? -.infinity) + Hover.ripple) }
         if Chips.animated {
             end = max(end, e.chipsAt + Chips.settle + Chips.stagger * Double(e.chipRank.count))

@@ -166,8 +166,12 @@ struct BloomScene: View {
     private func slot(_ index: Int, _ leaf: BloomModel.Leaf, count: Int, center: CGPoint, _ e: BloomEvents) -> some View {
         let middle = BloomLayout.leafCenter(index, of: count)
         let state = Motion.slot(index, count: count, center: middle, e, now: now)
+        // While a slot fades out it still draws its bright fill, fading.
+        let amount = state.fill == .flash || e.drop != nil ? 1 : Motion.litAmount(index, e, now: now)
+        let fill: SlotFill = state.fill == .frosted && amount > 0 && e.drop == nil ? .lit : state.fill
         SlotView(index: index, count: count, title: title(of: leaf), symbol: symbol(of: leaf), hue: hue(of: index),
-                 fill: state.fill, focused: model.focusedLeaf == index && model.focusChip == nil && model.phase == .open)
+                 fill: fill, litAmount: amount,
+                 focused: model.focusedLeaf == index && model.focusChip == nil && model.phase == .open)
             .look(state.look)
             .position(offset(middle, center))
     }
@@ -282,6 +286,8 @@ struct SlotView: View {
     let symbol: String?
     let hue: Color
     let fill: SlotFill
+    /// How far the bright fill has faded in, while lit or letting go.
+    var litAmount: Double = 1
     let focused: Bool
 
     @Environment(\.colorScheme) private var scheme
@@ -292,11 +298,15 @@ struct SlotView: View {
         let shape = Path(local)
         let label = BloomLayout.labelBox(index, of: count, icon: symbol != nil)
         let dark = scheme == .dark
-        let lit = fill != .frosted
+        let lit = fill == .flash || (fill == .lit && litAmount > 0.5)
         ZStack(alignment: .topLeading) {
             switch fill {
             case .frosted: shape.fill(Color.white.opacity(dark ? 0.11 : 0.62))
-            case .lit: shape.fill(BloomStyle.litFill(scheme)).shadow(color: BloomStyle.litShadow(scheme), radius: 6, y: 2)
+            case .lit:
+                shape.fill(Color.white.opacity(dark ? 0.11 : 0.62))
+                shape.fill(BloomStyle.litFill(scheme))
+                    .shadow(color: BloomStyle.litShadow(scheme), radius: 6, y: 2)
+                    .opacity(litAmount)
             case .flash: shape.fill(Color.white)
             }
             shape.stroke(rim(lit: lit, dark: dark), lineWidth: 0.75)
