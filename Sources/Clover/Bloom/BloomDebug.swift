@@ -5,7 +5,7 @@ import CloverCore
 /// Debug commands for checking the bloom without a real drag. Read from the command
 /// line when the bloom starts; each one runs, prints, and quits the app.
 ///
-///   Clover --render-bloom <out.png> [--no-targets] [--frames] <file>...
+///   Clover --render-bloom <out.png> [--no-targets] [--frames | --bench] <file>...
 ///   Clover --render-hud <out.png> [<file>]
 ///   Clover --bloom-selftest
 @MainActor
@@ -60,15 +60,17 @@ enum BloomDebug {
     static func renderBloom(_ args: [String], model: AppModel) async -> Int32 {
         var rest = args
         guard !rest.isEmpty else {
-            print("Usage: Clover --render-bloom <out.png> [--no-targets] [--frames] <file>...")
+            print("Usage: Clover --render-bloom <out.png> [--no-targets] [--frames | --bench] <file>...")
             return 2
         }
         let out = URL(fileURLWithPath: rest.removeFirst())
         let noTargets = rest.contains("--no-targets")
         let frames = rest.contains("--frames")
-        rest.removeAll { $0 == "--no-targets" || $0 == "--frames" }
+        let bench = rest.contains("--bench")
+        rest.removeAll { $0 == "--no-targets" || $0 == "--frames" || $0 == "--bench" }
         let files = rest.map { URL(fileURLWithPath: $0) }
         let arrangement = noTargets ? Arrangement(leaves: [], more: []) : model.arrangement(for: files)
+        if bench { return await benchmark(files: files, arrangement: arrangement) }
         if frames { return await renderFrames(files: files, arrangement: arrangement, to: out) }
         let all = arrangement.all
 
@@ -150,6 +152,36 @@ enum BloomDebug {
             }
         }
         return write(sheet, to: out)
+    }
+
+    // MARK: Frame cost
+
+    /// Times whole frames of the clover (the view built, laid out and drawn at 2x on the
+    /// CPU) through the open and a lit, breathing slot. The live window draws on the GPU,
+    /// so this is an upper bound; at 120 Hz a frame has 8.3 ms.
+    static func benchmark(files: [URL], arrangement: Arrangement) async -> Int32 {
+        let (m, clock) = make(files, arrangement)
+        await m.waitForThumbnails(timeout: 4)
+        let t0: TimeInterval = 1000
+        clock.now = t0
+        m.open()
+        var times: [Double] = []
+        func frame(_ t: TimeInterval) {
+            let start = Date()
+            let renderer = ImageRenderer(content: BloomView(model: m, time: t).environment(\.bloomSnapshot, true))
+            renderer.scale = 2
+            _ = renderer.cgImage
+            times.append(Date().timeIntervalSince(start) * 1000)
+        }
+        for i in 0..<60 { frame(t0 + Double(i) / 120) }
+        clock.now = t0 + 1
+        m.pointer(at: BloomLayout.labelBox(0, of: m.leafCount).mid)
+        for i in 0..<60 { frame(t0 + 1 + Double(i) / 120) }
+        let first = times.removeFirst()
+        let sorted = times.sorted()
+        print(String(format: "first frame %.1f ms; then %d frames: median %.1f ms, 95th %.1f ms, max %.1f ms",
+                     first, times.count, sorted[sorted.count / 2], sorted[sorted.count * 95 / 100], sorted.last ?? 0))
+        return 0
     }
 
     // MARK: Motion frames

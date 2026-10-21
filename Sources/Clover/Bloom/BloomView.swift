@@ -243,7 +243,7 @@ struct SlotView: View {
         let bounds = BloomLayout.leafBounds(index, of: count)
         let local = SlotView.localPath(index, count)
         let shape = Path(local)
-        let label = BloomLayout.labelBox(index, of: count)
+        let label = BloomLayout.labelBox(index, of: count, icon: symbol != nil)
         let dark = scheme == .dark
         let lit = fill != .frosted
         ZStack(alignment: .topLeading) {
@@ -254,7 +254,7 @@ struct SlotView: View {
             }
             shape.stroke(rim(lit: lit, dark: dark), lineWidth: 0.75)
             Path { p in
-                for (a, b) in BloomLayout.midrib(index, of: count) {
+                for (a, b) in BloomLayout.midrib(index, of: count, icon: symbol != nil) {
                     p.move(to: CGPoint(x: a.x - bounds.minX, y: a.y - bounds.minY))
                     p.addLine(to: CGPoint(x: b.x - bounds.minX, y: b.y - bounds.minY))
                 }
@@ -280,12 +280,18 @@ struct SlotView: View {
         return LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)
     }
 
+    private static var localPaths: [Int: CGPath] = [:]
+
     /// The slot's outline moved so its bounding box starts at the origin.
     static func localPath(_ index: Int, _ count: Int) -> CGPath {
+        let key = count * 100 + index
+        if let cached = localPaths[key] { return cached }
         let bounds = BloomLayout.leafBounds(index, of: count)
         var shift = CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY)
         let path = BloomLayout.leafPath(index, of: count)
-        return path.copy(using: &shift) ?? path
+        let local = path.copy(using: &shift) ?? path
+        localPaths[key] = local
+        return local
     }
 }
 
@@ -316,18 +322,18 @@ struct SlotLabel: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: BloomGeometry.labelIconGap) {
             if let symbol {
                 Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(lit ? Color.white : hue)
-                    .frame(height: 14)
+                    .frame(height: BloomGeometry.labelIcon.height)
             }
             Text(title)
-                .font(Font(BloomStyle.leafFont))
+                .font(Font(BloomStyle.leafFont(for: title, width: width)))
                 .foregroundStyle(lit ? Color.white : Color.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.8)
                 .frame(maxWidth: width)
         }
         // A faint shadow keeps the white title crisp on green, and light titles on busy glass.

@@ -3,14 +3,15 @@ import Foundation
 
 /// Fixed sizes of the clover, in points.
 enum BloomGeometry {
-    /// The glass disc: 360 pt across.
-    static let discRadius: CGFloat = 180
+    /// The glass disc: 380 pt across, with room
+    /// for air around every slot.
+    static let discRadius: CGFloat = 190
     /// The rim, a thin ring of clear glass inside the disc's edge.
     static let rimWidth: CGFloat = 10
-    /// Between two neighbouring slots, so the disc's glass shows between them.
-    static let slotGap: CGFloat = 10
+    /// Between two neighbouring slots, so plenty of the disc's glass shows between them.
+    static let slotGap: CGFloat = 14
     /// Between a slot and the centre circle, and between a slot and the rim.
-    static let slotInset: CGFloat = 6
+    static let slotInset: CGFloat = 10
     /// The centre circle, with the files' picture: a third of the disc.
     static let hubSize: CGFloat = 120
     /// Where slots start and how far their lobes reach, from the centre.
@@ -32,9 +33,15 @@ enum BloomGeometry {
     /// The notch between the lobes: a share of the slot's depth, or of its half-width for
     /// wide slots, whichever is deeper.
     static let notchOfDepth: CGFloat = 0.14
-    static let notchOfWidth: CGFloat = 0.13
-    /// The label block in a slot: a title, with a small icon over it for tools.
-    static let labelHeight: CGFloat = 36
+    static let notchOfWidth: CGFloat = 0.11
+    /// The label block in a slot: a title alone, or a tool's small icon over its title.
+    static let titleHeight: CGFloat = 18
+    static let labelHeight: CGFloat = 34
+    /// The tool's icon, and the space under it.
+    static let labelIcon = CGSize(width: 14, height: 12)
+    static let labelIconGap: CGFloat = 2
+    /// Clear space kept between a label and its slot's outline, on every side.
+    static let labelClearance: CGFloat = 8
     /// The label fits in this width in every slot, so a long title shrinks the same way everywhere.
     static let labelMaxWidth: CGFloat = 84
     /// The ideal distance of a label's middle from the centre: 72 % of the disc's radius.
@@ -248,6 +255,7 @@ enum BloomLayout {
     private struct Key: Hashable {
         let index: Int
         let count: Int
+        var icon = false
     }
 
     private static var paths: [Key: CGPath] = [:]
@@ -308,19 +316,24 @@ enum BloomLayout {
     }
 
     /// Where a slot's label goes: an upright box in the broad part of the slot, as wide
-    /// as its title fits (at most `labelMaxWidth`), as near `labelRadius` along the slot
-    /// as that allows. A title alone sits in the box's middle; a tool's small icon sits
-    /// over it in the top quarter, which needs less room.
-    static func labelBox(_ index: Int, of count: Int) -> CGRect {
-        let key = Key(index: index, count: count)
+    /// as its title fits (at most `labelMaxWidth`) with `labelClearance` of clear space on
+    /// every side, as near `labelRadius` along the slot as that allows. With `icon`, a
+    /// tool's small icon sits over the title and needs less width.
+    static func labelBox(_ index: Int, of count: Int, icon: Bool = false) -> CGRect {
+        let key = Key(index: index, count: count, icon: icon)
         if let cached = labels[key] { return cached }
         let outline = leafOutline(index, of: count)
         let r = radial(index, of: count)
-        let half = G.labelHeight / 2
-        let iconRows = stride(from: -half, through: -half / 2, by: 3).map { $0 }
-        let titleRows = stride(from: -half / 2, through: half, by: 3).map { $0 }
+        let height = icon ? G.labelHeight : G.titleHeight
+        let half = height / 2
+        // The rows the label covers, and its clear space above and below.
+        let clear = G.labelClearance
+        // The title's rows need the full width; a tool's icon rows above need only its own.
+        let titleTop = icon ? -half + G.labelIcon.height + G.labelIconGap : -half - clear
+        let iconRows = icon ? stride(from: -half - clear, through: titleTop - 1, by: 2).map { $0 } : []
+        let titleRows = stride(from: titleTop, through: half + clear, by: 2).map { $0 }
         let middle = CGPoint(x: r.dx * G.labelRadius, y: r.dy * G.labelRadius)
-        let wanted = G.labelMaxWidth + 6
+        let wanted = G.labelMaxWidth
         let reach: CGFloat = 30
         /// The widest box centred on `x` that every row fits, or nil.
         func halfWidth(x: CGFloat, y: CGFloat, rows: [CGFloat]) -> CGFloat? {
@@ -334,9 +347,9 @@ enum BloomLayout {
         var best: (center: CGPoint, width: CGFloat, score: CGFloat)?
         func consider(_ c: CGPoint) {
             guard distance(c, middle) < reach,
-                  let icon = halfWidth(x: c.x, y: c.y, rows: iconRows), icon >= 12,
+                  iconRows.isEmpty || (halfWidth(x: c.x, y: c.y, rows: iconRows) ?? 0) >= G.labelIcon.width / 2 + clear,
                   let title = halfWidth(x: c.x, y: c.y, rows: titleRows) else { return }
-            let width = title * 2
+            let width = (title - clear) * 2
             let score = min(width, wanted) * 4 - distance(c, middle)
             if best == nil || score > best!.score { best = (c, width, score) }
         }
@@ -349,19 +362,19 @@ enum BloomLayout {
             }
         }
         let center = best?.center ?? middle
-        let width = min((best?.width ?? 0) - 6, G.labelMaxWidth).rounded(.down)
-        let box = CGRect(x: (center.x - width / 2).rounded(), y: (center.y - half).rounded(), width: width, height: G.labelHeight)
+        let width = min(best?.width ?? 0, G.labelMaxWidth).rounded(.down)
+        let box = CGRect(x: (center.x - width / 2).rounded(), y: (center.y - half).rounded(), width: width, height: height)
         labels[key] = box
         return box
     }
 
     /// The faint midrib from a slot's base to its notch, in pieces that leave its label clear.
-    static func midrib(_ index: Int, of count: Int) -> [(CGPoint, CGPoint)] {
+    static func midrib(_ index: Int, of count: Int, icon: Bool = false) -> [(CGPoint, CGPoint)] {
         let r = radial(index, of: count)
         let start = G.slotInner + 8
         let end = G.slotOuter - SlotShape.notchDepth(count: count) - 7
         let a = CGPoint(x: r.dx * start, y: r.dy * start), b = CGPoint(x: r.dx * end, y: r.dy * end)
-        let box = labelBox(index, of: count).insetBy(dx: -4, dy: -3)
+        let box = labelBox(index, of: count, icon: icon).insetBy(dx: -4, dy: -3)
         // The stretch of the segment inside the box (Liang-Barsky), cut out.
         var t0: CGFloat = 0, t1: CGFloat = 1
         let dx = b.x - a.x, dy = b.y - a.y

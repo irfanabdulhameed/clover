@@ -83,6 +83,9 @@ final class BloomModel: ObservableObject {
     var onLight: (() -> Void)?
 
     private var chipWidthCache: [String: [CGFloat]] = [:]
+    private var chipFrameCache: [Int: [CGRect]] = [:]
+    /// The summary, worked out when the files or their size change, not on every frame.
+    private var summaryCache: String?
     private var restTimer: DispatchWorkItem?
     private var chipTimer: DispatchWorkItem?
     private var moreTimer: DispatchWorkItem?
@@ -103,6 +106,8 @@ final class BloomModel: ObservableObject {
         hasFiles = false
         arrangement = Arrangement(leaves: [], more: [])
         chipWidthCache = [:]
+        chipFrameCache = [:]
+        summaryCache = nil
         clearPointerAndFocus()
         pictures = []
         thumbnailsLoaded = false
@@ -122,6 +127,8 @@ final class BloomModel: ObservableObject {
         hasFiles = true
         self.arrangement = arrangement
         chipWidthCache = [:]
+        chipFrameCache = [:]
+        summaryCache = nil
         pillWidth = TrayLayout.pillWidth(textWidths: arrangement.more.map { BloomStyle.textWidth($0.title, font: BloomStyle.pillFont) })
         clearPointerAndFocus()
         // The slots unfold now, if the disc is already open.
@@ -134,10 +141,13 @@ final class BloomModel: ObservableObject {
     static func still(arrangement: Arrangement, picture: NSImage?, lit: Int?) -> BloomModel {
         let model = BloomModel()
         model.arrangement = arrangement
+        model.summaryCache = ""
         model.hasFiles = picture != nil
         model.pictures = picture.map { [$0] } ?? []
         model.restingLeaf = lit
         model.events.lit = lit
+        // A still picture: the others dim without the hover's blur, and nothing breathes.
+        model.events.reduce = true
         return model
     }
 
@@ -181,8 +191,11 @@ final class BloomModel: ObservableObject {
     }
 
     func chipFrames(for leaf: Int) -> [CGRect] {
+        if let cached = chipFrameCache[leaf] { return cached }
         guard let target = target(at: leaf) else { return [] }
-        return BloomLayout.chipFrames(leaf, of: leafCount, widths: chipWidths(for: target))
+        let frames = BloomLayout.chipFrames(leaf, of: leafCount, widths: chipWidths(for: target))
+        chipFrameCache[leaf] = frames
+        return frames
     }
 
     // MARK: Tray geometry
@@ -577,6 +590,10 @@ final class BloomModel: ObservableObject {
         if let pill = litPill, let target = pillTarget(pill) {
             return BloomModel.hint(for: target, option: litChip.flatMap { target.options.indices.contains($0) ? target.options[$0] : nil })
         }
+        // Resting on the centre shows what the files are called.
+        if hover == .hub, !usingKeyboard {
+            return files.count == 1 ? files[0].lastPathComponent : "\(files.count) files"
+        }
         if let leaf = litLeaf {
             if isMore(leaf) { return "\(arrangement.more.count) more" }
             if let target = target(at: leaf) {
@@ -589,6 +606,13 @@ final class BloomModel: ObservableObject {
 
     /// "2.2 MB", "12 files · 34 MB"; without sizes, "photo.png", "PDF · 12 files", "5 files".
     var summary: String {
+        if let summaryCache { return summaryCache }
+        let text = makeSummary()
+        summaryCache = text
+        return text
+    }
+
+    private func makeSummary() -> String {
         guard hasFiles, !files.isEmpty else { return "" }
         let size = byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
         if files.count == 1 { return size ?? files[0].lastPathComponent }
@@ -724,6 +748,7 @@ final class BloomModel: ObservableObject {
         thumbnailTask = Task { [weak self] in
             let bytes = await Task.detached(priority: .userInitiated) { BloomModel.totalSize(all) }.value
             guard let self, !Task.isCancelled, self.files == all else { return }
+            self.summaryCache = nil
             self.byteCount = bytes
             for (i, url) in shown.enumerated() {
                 let image = await Thumbnails.thumbnail(for: url, side: 128)

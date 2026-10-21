@@ -60,8 +60,22 @@ final class BloomController: BloomInteractionDelegate {
         // Leaf outlines and label boxes are measured once, now, not on the first drag.
         DispatchQueue.main.async {
             for count in 1...BloomGeometry.maxLeaves {
-                for index in 0..<count { _ = BloomLayout.labelBox(index, of: count) }
+                for index in 0..<count {
+                    _ = BloomLayout.labelBox(index, of: count)
+                    _ = BloomLayout.labelBox(index, of: count, icon: true)
+                    _ = SlotView.localPath(index, count)
+                }
             }
+            // One still frame drawn offscreen warms text, symbol and blur caches, so the
+            // first real open doesn't pay for them.
+            let still = BloomModel.still(arrangement: Arrangement(leaves: [], more: []), picture: nil, lit: nil)
+            let warm = ImageRenderer(content: ZStack {
+                BloomScene(model: still, now: 0)
+                SlotLabel(title: "JPG", symbol: "ellipsis", hue: .orange, lit: true, width: 80)
+                CapsuleLabel(text: "2.2 MB")
+                ChipView(title: "Balanced", isDefault: true, isLit: false, isFocused: false, hue: .orange)
+            }.environment(\.bloomSnapshot, true))
+            _ = warm.cgImage
         }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp], handler: { [weak self] event in
             MainActor.assumeIsolated { self?.handleGlobal(event) }

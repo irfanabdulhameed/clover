@@ -18,7 +18,10 @@ enum BloomSelfTest {
     }
 
     static func run(model: AppModel) async -> Int32 {
-        titles = ["More"] + LayoutKey.allCases.flatMap { model.catalog.allTargets(for: $0).map(\.title) }
+        let targets = LayoutKey.allCases.flatMap { model.catalog.allTargets(for: $0) }
+        titles = ["More"] + targets.map(\.title)
+        toolTitles = ["More"] + targets.filter(BloomStyle.isTool).map(\.title)
+        formatTitles = targets.filter { !BloomStyle.isTool($0) }.map(\.title)
         leaves()
         slotShapes()
         geometry()
@@ -64,6 +67,14 @@ enum BloomSelfTest {
         expect(L.radial(1, of: 4) == CGVector(dx: 1, dy: 0), "four leaves: the second at 3 o'clock")
     }
 
+    /// True when points every 2 pt along `rect`'s edges are inside `path`.
+    private static func edgesInside(_ rect: CGRect, _ path: CGPath) -> Bool {
+        var points: [CGPoint] = []
+        for x in stride(from: rect.minX, through: rect.maxX, by: 2) { points += [CGPoint(x: x, y: rect.minY), CGPoint(x: x, y: rect.maxY)] }
+        for y in stride(from: rect.minY, through: rect.maxY, by: 2) { points += [CGPoint(x: rect.minX, y: y), CGPoint(x: rect.maxX, y: y)] }
+        return points.allSatisfy { path.contains($0) }
+    }
+
     // MARK: Slot shapes
 
     /// Each slot is a clover leaflet: a narrow base at the centre circle, two lobes reaching
@@ -104,11 +115,15 @@ enum BloomSelfTest {
 
     // MARK: Geometry
 
-    /// Every title a leaf can show.
+    /// Every title a slot can show; those with a small icon (tools and More), and formats.
     private static var titles: [String] = []
+    private static var toolTitles: [String] = []
+    private static var formatTitles: [String] = []
 
     private static func geometry() {
-        let widest = titles.map { BloomStyle.textWidth($0, font: BloomStyle.leafFont) }.max() ?? 0
+        func widest(_ list: [String]) -> CGFloat { list.map { BloomStyle.textWidth($0, font: BloomStyle.leafSmallFont) }.max() ?? 0 }
+        let widestFormat = widest(formatTitles), widestTool = widest(toolTitles)
+        expect(widestFormat > 40 && widestTool > 40, "titles measured: formats \(widestFormat), tools \(widestTool)")
         for n in 1...G.maxLeaves {
             for i in 0..<n {
                 let path = L.leafPath(i, of: n)
@@ -119,16 +134,27 @@ enum BloomSelfTest {
                        "slot \(i) of \(n) inside the band: \(radii.min()!)...\(radii.max()!)")
                 // Its own sector.
                 expect(L.sector(L.leafCenter(i, of: n), count: n) == i, "slot \(i) of \(n) in its sector")
-                // The label stands upright inside the slot, clear of the hub, wide enough.
+                // The label stands upright inside the slot, clear of the hub, wide enough: a
+                // title alone, or a tool's icon over its title.
+                for withIcon in [false, true] {
+                    let label = L.labelBox(i, of: n, icon: withIcon)
+                    let c8 = G.labelClearance
+                    let titleTop = withIcon ? label.minY + G.labelIcon.height + G.labelIconGap : label.minY
+                    let text = CGRect(x: label.minX - c8, y: titleTop - (withIcon ? 0 : c8), width: label.width + 2 * c8,
+                                      height: label.maxY + c8 - (titleTop - (withIcon ? 0 : c8))).insetBy(dx: 0.75, dy: 0.75)
+                    let iconArea = CGRect(x: label.midX - G.labelIcon.width / 2 - c8, y: label.minY - c8,
+                                          width: G.labelIcon.width + 2 * c8, height: titleTop - label.minY + c8).insetBy(dx: 0.75, dy: 0.75)
+                    expect(edgesInside(text, path) && (!withIcon || edgesInside(iconArea, path)),
+                           "slot \(i) of \(n)\(withIcon ? " with an icon" : ""): 8 pt clear around the label \(label)")
+                    // Every title fits at 14 pt or more. In a three-slot clover the leaves at 4 and
+                    // 8 o'clock lie across, so a tool's title may shrink a little further there.
+                    let need = withIcon ? (n == 3 ? 0.8 * widestTool : widestTool) : widestFormat
+                    expect(label.width >= need, "slot \(i) of \(n)\(withIcon ? " with an icon" : ""): label width \(label.width) for titles up to \(need)")
+                    let nearest = CGPoint(x: min(max(0, label.minX), label.maxX), y: min(max(0, label.minY), label.maxY))
+                    expect(L.distance(nearest, .zero) > G.hubSize / 2 + 2, "slot \(i) of \(n): label clear of the hub")
+                    expect(abs(L.distance(label.mid, .zero) - G.labelRadius) < 32, "slot \(i) of \(n): label near 72 % of the radius")
+                }
                 let label = L.labelBox(i, of: n)
-                let title = CGRect(x: label.minX, y: label.midY - label.height / 4, width: label.width, height: label.height * 3 / 4)
-                let icon = CGRect(x: label.midX - 11, y: label.minY, width: 22, height: label.height / 4)
-                expect(inside(title, path) && inside(icon, path), "slot \(i) of \(n): label \(label) inside the slot")
-                // Every title fits at nine tenths of its size or more (it may shrink to three quarters).
-                expect(label.width >= 0.9 * widest, "slot \(i) of \(n): label width \(label.width) for titles up to \(widest)")
-                let nearest = CGPoint(x: min(max(0, label.minX), label.maxX), y: min(max(0, label.minY), label.maxY))
-                expect(L.distance(nearest, .zero) > G.hubSize / 2 + 2, "slot \(i) of \(n): label clear of the hub")
-                expect(abs(L.distance(label.mid, .zero) - G.labelRadius) < 26, "slot \(i) of \(n): label near 72 % of the radius")
                 // No two slots overlap; neighbours keep the gap, so the disc's glass shows between them.
                 for j in 0..<n where j > i {
                     let other = L.leafPath(j, of: n)
@@ -154,8 +180,9 @@ enum BloomSelfTest {
         let extent = BloomController.extent
         expect(panel.insetBy(dx: 4, dy: 4).contains(extent), "worst-case content \(extent) fits the panel")
         expect(extent.width >= 2 * G.discRadius, "extent covers the disc")
-        expect(G.discRadius * 2 == 360 && abs(G.hubSize / (G.discRadius * 2) - 0.33) < 0.01, "a 360 pt disc, a third of it the centre")
-        expect(G.labelRadius == 130, "labels at 72 % of the radius")
+        expect(G.discRadius * 2 == 380 && G.hubSize == 120, "a 380 pt disc with a 120 pt centre")
+        expect(G.slotGap == 14 && G.slotInset == 10, "air: 14 pt between slots, 10 pt off the rim and the centre")
+        expect(G.labelRadius == 137, "labels at 72 % of the radius")
         expect(Motion.Open.ringTo > G.discRadius && Motion.Open.ringTo < half, "the ring of light passes the rim and stays in the panel")
     }
 
@@ -416,6 +443,9 @@ enum BloomSelfTest {
         expect(m.leafCount == 6 && m.moreIndex == 5 && m.isMore(5) && m.leaves.last == .more, "More is the sixth leaf")
         expect(m.target(at: 0)?.id == arrangement.leaves[0].id, "the first leaf is the first target")
         expect(m.hint == "photo.png", "one file without a size: its name")
+        m.pointer(at: .zero)
+        expect(m.hint == "photo.png", "resting on the centre shows the name")
+        m.pointerLeft()
 
         // The user's order decides the leaves.
         let mine = LeafArranger.arrange(targets, layout: LeafLayout(order: ["webp", "pdf"], hidden: ["jpg"]))

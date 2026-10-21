@@ -31,7 +31,7 @@ enum Motion {
         /// The ring of light that radiates from the pointer, like AirDrop's radar.
         static let ring: TimeInterval = 0.50
         static let ringFrom: CGFloat = 40
-        static let ringTo: CGFloat = 236
+        static let ringTo: CGFloat = 250
         static let ringPeak: Double = 0.55
     }
 
@@ -464,8 +464,9 @@ extension Motion {
         guard let drop = e.drop else { return nil }
         let t = now - drop.at
         if e.reduce {
-            guard t >= fade else { return nil }
-            return Look(opacity: phase(t, fade, fade))
+            // Fades in as the clover fades out, so there is never an empty frame.
+            guard t >= fade / 2 else { return nil }
+            return Look(opacity: phase(t, fade / 2, fade))
         }
         guard t >= Drop.ringAt else { return nil }
         let u = t - Drop.ringAt

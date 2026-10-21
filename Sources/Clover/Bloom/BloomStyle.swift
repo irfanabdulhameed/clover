@@ -56,6 +56,13 @@ enum BloomStyle {
     static let hintFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     /// A slot's title: SF Pro Rounded, bold.
     static let leafFont = rounded(15, weight: .bold)
+    /// One step down, for a title its slot can't hold at full size.
+    static let leafSmallFont = rounded(14, weight: .bold)
+
+    /// The title's font in a label of `width`: full size when it fits, else one step down.
+    static func leafFont(for title: String, width: CGFloat) -> NSFont {
+        textWidth(title, font: leafFont) <= width ? leafFont : leafSmallFont
+    }
     /// The size capsule on the centre circle.
     static let capsuleFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
     /// A pill's title in the More tray.
