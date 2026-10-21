@@ -25,7 +25,7 @@ public struct FFmpegConverter: Converter {
 
         let output = directory.appendingPathComponent("\(baseName).\(to.fileExtension)")
         let plan = try FFmpegPlan.make(input: input, output: output, to: to, quality: context.quality,
-                                       media: media, encoders: encoders)
+                                       media: media, encoders: encoders, settings: context.settings)
         defer { plan.removeScratchFiles() }
         do {
             try await plan.run(ffmpeg: ffmpeg, duration: media.duration, progress: context.progress)
@@ -352,77 +352,111 @@ struct FFmpegPlan: Equatable {
     #endif
 
     static func make(input: URL, output: URL, to: Format, quality: String, media: FFmpegMedia,
-                     encoders: Set<String>, hardwareQuality: Bool = FFmpegPlan.hardwareQualityScale) throws -> FFmpegPlan {
+                     encoders: Set<String>, settings: ConversionSettings = ConversionSettings(),
+                     hardwareQuality: Bool = FFmpegPlan.hardwareQualityScale) throws -> FFmpegPlan {
         switch to.family {
         case .audio:
             guard media.audio != nil else { throw ConversionError.failed(FFmpegErrors.noAudio) }
-            return try audioPlan(input: input, output: output, to: to, quality: quality, media: media, encoders: encoders)
+            return try audioPlan(input: input, output: output, to: to, quality: quality, media: media,
+                                 encoders: encoders, settings: settings)
         case .video:
             guard media.video != nil else { throw ConversionError.failed(FFmpegErrors.noVideo) }
             return try videoPlan(input: input, output: output, to: to, quality: quality, media: media,
-                                 encoders: encoders, hardwareQuality: hardwareQuality)
+                                 encoders: encoders, settings: settings, hardwareQuality: hardwareQuality)
         default:
             guard to == Formats.gif else { throw ConversionError.unsupported("files to \(to.name)") }
             guard media.video != nil else { throw ConversionError.failed(FFmpegErrors.noVideo) }
-            return gifPlan(input: input, output: output, quality: quality, media: media)
+            return gifPlan(input: input, output: output, quality: quality, media: media, settings: settings)
         }
     }
 
     // MARK: Option mapping
 
-    /// Longest side limit for the video chips: 1080p, 720p, and "small" (480p). Nil keeps the size.
-    static func heightLimit(for quality: String) -> Int? {
+    /// Longest side limit for the video chips: 1080p, 720p, and "small" (480p unless the settings
+    /// say otherwise). Nil keeps the size.
+    static func heightLimit(for quality: String, settings: ConversionSettings = ConversionSettings()) -> Int? {
         switch quality {
         case "1080p": 1080
         case "720p": 720
-        case "small": 480
+        case "small": max(2, settings.smallVideoHeight)
         default: nil
         }
     }
 
     /// GIF width for the chips Large, Medium, Small.
-    static func gifWidth(for quality: String) -> Int {
-        switch quality {
-        case "large": 720
-        case "small": 320
-        default: 480
+    static func gifWidth(for quality: String, settings: ConversionSettings = ConversionSettings()) -> Int {
+        max(2, Int(settings.gifWidth[quality].rounded()))
+    }
+
+    /// What each video encoder is told for a video quality percent (0...100, 60 by default).
+    ///
+    /// Every encoder scale is two straight lines through three points: the worst setting at 0%,
+    /// the long-standing default at 60%, and the best at 100%.
+    ///
+    ///     VideoToolbox -q:v   10 -> 55 -> 100   higher is better
+    ///     libx264 -crf        38 -> 20 -> 12    lower is better
+    ///     libvpx-vp9 -crf     52 -> 32 -> 15    lower is better
+    ///
+    /// "Small" then moves each setting a fixed step toward smaller files (-20 on -q:v, +8 on -crf),
+    /// so 60% gives 55 / 20 / 32 normally and 35 / 28 / 40 for Small.
+    struct VideoEncoderQuality: Equatable {
+        var videoToolbox: Int
+        var x264: Int
+        var vp9: Int
+
+        init(percent: Double, small: Bool) {
+            func line(_ worst: Double, _ normal: Double, _ best: Double) -> Double {
+                let p = min(max(percent, 0), 100)
+                return p <= 60 ? worst + (normal - worst) * p / 60 : normal + (best - normal) * (p - 60) / 40
+            }
+            videoToolbox = min(max(Int((line(10, 55, 100) - (small ? 20 : 0)).rounded()), 1), 100)
+            x264 = min(max(Int((line(38, 20, 12) + (small ? 8 : 0)).rounded()), 0), 51)
+            vp9 = min(max(Int((line(52, 32, 15) + (small ? 8 : 0)).rounded()), 0), 63)
         }
     }
 
-    /// LAME VBR level: best, balanced, small.
-    static func mp3Level(for quality: String) -> String {
-        switch quality {
-        case "best": "0"
-        case "small": "5"
-        default: "2"
-        }
+    /// LAME VBR levels V0 ... V9 and the bitrate each averages, in kbit/s.
+    private static let lameAverages: [Int] = [245, 225, 190, 175, 165, 130, 115, 100, 85, 65]
+
+    /// MP3 encoder arguments for a bitrate. LAME's VBR levels come close to a target:
+    /// the level with the nearest average is used (256 gives V0, 192 gives V2, 128 gives V5).
+    /// V0 tops out near 245, so a request above 256 is constant bitrate instead, up to MP3's 320.
+    static func mp3Quality(kbps: Double) -> [String] {
+        if kbps > 256 { return ["-b:a", "\(min(Int(kbps.rounded()), 320))k"] }
+        let level = lameAverages.indices.min { abs(Double(lameAverages[$0]) - kbps) < abs(Double(lameAverages[$1]) - kbps) } ?? 2
+        return ["-q:a", "\(level)"]
+    }
+
+    /// MP3 arguments for the chips Best, Balanced, Small.
+    static func mp3Quality(for quality: String, settings: ConversionSettings = ConversionSettings()) -> [String] {
+        mp3Quality(kbps: settings.audioBitrate[quality])
+    }
+
+    /// AAC bitrate, "192k".
+    static func aacBitrate(kbps: Double) -> String {
+        "\(min(max(Int(kbps.rounded()), 32), 320))k"
     }
 
     /// AAC bitrate for the M4A chips.
-    static func m4aBitrate(for quality: String) -> String {
-        switch quality {
-        case "best": "256k"
-        case "small": "128k"
-        default: "192k"
-        }
+    static func m4aBitrate(for quality: String, settings: ConversionSettings = ConversionSettings()) -> String {
+        aacBitrate(kbps: settings.audioBitrate[quality])
+    }
+
+    /// The Opus bitrate that sounds like an AAC bitrate. Opus is more efficient: half the AAC rate
+    /// plus 32 kbit/s, which keeps the long-standing 96 / 128 / 160 for 128 / 192 / 256.
+    static func opusKbps(matchingAAC kbps: Double) -> Int {
+        min(max(Int((32 + kbps / 2).rounded()), 16), 320)
     }
 
     /// Opus bitrate, also used for Ogg when there's no Vorbis encoder.
-    static func opusBitrate(for quality: String) -> String {
-        switch quality {
-        case "best": "160k"
-        case "small": "96k"
-        default: "128k"
-        }
+    static func opusBitrate(for quality: String, settings: ConversionSettings = ConversionSettings()) -> String {
+        "\(opusKbps(matchingAAC: settings.audioBitrate[quality]))k"
     }
 
-    /// libvorbis quality for the Ogg chips.
-    static func vorbisLevel(for quality: String) -> String {
-        switch quality {
-        case "best": "6"
-        case "small": "2"
-        default: "4"
-        }
+    /// libvorbis quality for the Ogg chips: one step per 32 kbit/s, so 128 / 192 / 256 give 2 / 4 / 6.
+    static func vorbisLevel(for quality: String, settings: ConversionSettings = ConversionSettings()) -> String {
+        let level = min(max(((settings.audioBitrate[quality] - 64) / 32 * 2).rounded() / 2, -1), 10)
+        return level == level.rounded() ? String(Int(level)) : String(level)
     }
 
     // MARK: Scaling
@@ -464,9 +498,10 @@ struct FFmpegPlan: Equatable {
     // MARK: Video targets
 
     static func videoPlan(input: URL, output: URL, to: Format, quality: String, media: FFmpegMedia,
-                          encoders: Set<String>, hardwareQuality: Bool) throws -> FFmpegPlan {
+                          encoders: Set<String>, settings: ConversionSettings = ConversionSettings(),
+                          hardwareQuality: Bool) throws -> FFmpegPlan {
         guard let video = media.video else { throw ConversionError.failed(FFmpegErrors.noVideo) }
-        let limit = heightLimit(for: quality)
+        let limit = heightLimit(for: quality, settings: settings)
         let small = quality == "small"
         // Only "Original" may copy streams as they are.
         let copyVideo = limit == nil && canCopyVideo(video, into: to)
@@ -484,7 +519,8 @@ struct FFmpegPlan: Equatable {
                     let tag = video.codec == "hevc" && ["mp4", "mov"].contains(to.id) ? ["-tag:v", "hvc1"] : []
                     attempt.video = ["-c:v", "copy"] + tag
                 } else {
-                    let codec = try encodeVideo(for: to, small: small, encoders: encoders, hardwareQuality: hardwareQuality)
+                    let codec = try encodeVideo(for: to, small: small, encoders: encoders, settings: settings,
+                                                hardwareQuality: hardwareQuality)
                     attempt.video = software ? (codec.fallback ?? codec.arguments) : codec.arguments
                     attempt.filters = ["-vf", scaleFilter(limit: limit)]
                 }
@@ -492,7 +528,7 @@ struct FFmpegPlan: Equatable {
                     if keepAudio {
                         attempt.audio = ["-c:a", "copy"]
                     } else {
-                        let codec = try encodeAudio(for: to, small: small, audio: audio, encoders: encoders)
+                        let codec = try encodeAudio(for: to, small: small, audio: audio, encoders: encoders, settings: settings)
                         attempt.audio = software ? (codec.fallback ?? codec.arguments) : codec.arguments
                     }
                 }
@@ -514,15 +550,17 @@ struct FFmpegPlan: Equatable {
     }
 
     /// H.264 for MP4, MOV and MKV; VP9 for WebM.
-    static func encodeVideo(for format: Format, small: Bool, encoders: Set<String>, hardwareQuality: Bool) throws -> FFmpegCodec {
+    static func encodeVideo(for format: Format, small: Bool, encoders: Set<String>,
+                            settings: ConversionSettings = ConversionSettings(), hardwareQuality: Bool) throws -> FFmpegCodec {
+        let q = VideoEncoderQuality(percent: settings.videoQuality, small: small)
         if format == Formats.webm {
             guard encoders.contains("libvpx-vp9") else { throw FFmpegErrors.cantWrite("WebM video") }
-            return FFmpegCodec(["-c:v", "libvpx-vp9", "-crf", small ? "40" : "32", "-b:v", "0", "-row-mt", "1",
+            return FFmpegCodec(["-c:v", "libvpx-vp9", "-crf", String(q.vp9), "-b:v", "0", "-row-mt", "1",
                                 "-deadline", "good", "-cpu-used", "4", "-pix_fmt", "yuv420p"])
         }
         let tag = ["mp4", "mov"].contains(format.id) ? ["-tag:v", "avc1"] : []
-        let hardware = FFmpegCodec(["-c:v", "h264_videotoolbox", "-q:v", small ? "35" : "55", "-pix_fmt", "yuv420p"] + tag)
-        let software = FFmpegCodec(["-c:v", "libx264", "-crf", small ? "28" : "20", "-preset", "medium", "-pix_fmt", "yuv420p"] + tag)
+        let hardware = FFmpegCodec(["-c:v", "h264_videotoolbox", "-q:v", String(q.videoToolbox), "-pix_fmt", "yuv420p"] + tag)
+        let software = FFmpegCodec(["-c:v", "libx264", "-crf", String(q.x264), "-preset", "medium", "-pix_fmt", "yuv420p"] + tag)
         let hasHardware = hardwareQuality && encoders.contains("h264_videotoolbox")
         let hasSoftware = encoders.contains("libx264")
         switch (hasHardware, hasSoftware) {
@@ -533,18 +571,22 @@ struct FFmpegPlan: Equatable {
         }
     }
 
-    /// Audio inside a video file: AAC for MP4, MOV and MKV; Opus for WebM.
-    static func encodeAudio(for format: Format, small: Bool, audio: FFmpegMedia.Audio, encoders: Set<String>) throws -> FFmpegCodec {
+    /// Audio inside a video file: AAC for MP4, MOV and MKV; Opus for WebM. It gets the Balanced audio
+    /// bitrate (the Small one for Small video), never above 192 kbit/s: sound in a film needs no more.
+    static func encodeAudio(for format: Format, small: Bool, audio: FFmpegMedia.Audio, encoders: Set<String>,
+                            settings: ConversionSettings = ConversionSettings()) throws -> FFmpegCodec {
+        let kbps = min(small ? settings.audioBitrate.small : settings.audioBitrate.balanced, 192)
         if format == Formats.webm {
-            return try opus(bitrate: small ? "96k" : "128k", encoders: encoders)
+            return try opus(bitrate: "\(opusKbps(matchingAAC: kbps))k", encoders: encoders)
         }
-        return try aac(bitrate: small ? "96k" : "160k", audio: audio, encoders: encoders)
+        return try aac(bitrate: aacBitrate(kbps: kbps), audio: audio, encoders: encoders)
     }
 
     // MARK: GIF
 
-    static func gifPlan(input: URL, output: URL, quality: String, media: FFmpegMedia) -> FFmpegPlan {
-        let width = gifWidth(for: quality)
+    static func gifPlan(input: URL, output: URL, quality: String, media: FFmpegMedia,
+                        settings: ConversionSettings = ConversionSettings()) -> FFmpegPlan {
+        let width = gifWidth(for: quality, settings: settings)
         let video = media.video
         let source = video?.isFirst == false ? "0:\(video!.index)" : "0:v:0"
         let shape = "fps=15,scale=w='min(\(width),iw)':h=-1:flags=lanczos"
@@ -567,7 +609,7 @@ struct FFmpegPlan: Equatable {
     // MARK: Audio targets
 
     static func audioPlan(input: URL, output: URL, to: Format, quality: String, media: FFmpegMedia,
-                          encoders: Set<String>) throws -> FFmpegPlan {
+                          encoders: Set<String>, settings: ConversionSettings = ConversionSettings()) throws -> FFmpegPlan {
         guard let audio = media.audio else { throw ConversionError.failed(FFmpegErrors.noAudio) }
         // Lossless targets keep 24-bit sources at 24 bits.
         let deep = audio.bitDepth >= 24
@@ -577,14 +619,14 @@ struct FFmpegPlan: Equatable {
         switch to.id {
         case "mp3":
             guard encoders.contains("libmp3lame") else { throw FFmpegErrors.cantWrite("MP3") }
-            codec = FFmpegCodec(["-c:a", "libmp3lame", "-q:a", mp3Level(for: quality), "-id3v2_version", "3"]
+            codec = FFmpegCodec(["-c:a", "libmp3lame"] + mp3Quality(for: quality, settings: settings) + ["-id3v2_version", "3"]
                                 + lossyExtras(audio, maxChannels: 2))
         case "m4a":
             if quality == "lossless" {
                 guard encoders.contains("alac") else { throw FFmpegErrors.cantWrite("Apple Lossless") }
                 codec = FFmpegCodec(["-c:a", "alac"])
             } else {
-                codec = try aac(bitrate: m4aBitrate(for: quality), audio: audio, encoders: encoders)
+                codec = try aac(bitrate: m4aBitrate(for: quality, settings: settings), audio: audio, encoders: encoders)
             }
             tail = ["-movflags", "+faststart"]
         case "wav":
@@ -598,12 +640,12 @@ struct FFmpegPlan: Equatable {
         case "ogg":
             // Without a Vorbis encoder, Opus in an Ogg file is the next best thing.
             if encoders.contains("libvorbis") {
-                codec = FFmpegCodec(["-c:a", "libvorbis", "-q:a", vorbisLevel(for: quality)] + lossyExtras(audio))
+                codec = FFmpegCodec(["-c:a", "libvorbis", "-q:a", vorbisLevel(for: quality, settings: settings)] + lossyExtras(audio))
             } else {
-                codec = try opus(bitrate: opusBitrate(for: quality), encoders: encoders)
+                codec = try opus(bitrate: opusBitrate(for: quality, settings: settings), encoders: encoders)
             }
         case "opus":
-            codec = try opus(bitrate: opusBitrate(for: quality), encoders: encoders)
+            codec = try opus(bitrate: opusBitrate(for: quality, settings: settings), encoders: encoders)
         default:
             throw ConversionError.unsupported("files to \(to.name)")
         }

@@ -116,16 +116,19 @@ public final class ConversionService: ObservableObject {
         let limiter = limits[request.target.format.family] ?? AsyncLimiter(2)
         let location = self.location()
         let settings = self.settings()
+        // Names and conflicts follow the settings, the same for every file of this job.
+        let rules = OutputPlacer.Rules(settings: settings, format: request.target.format.name,
+                                       option: request.option?.title, inputs: request.inputs)
 
         if request.target.combines(with: request.option) {
-            await combine(job, tools: tools, settings: settings, limiter: limiter, location: location)
+            await combine(job, tools: tools, settings: settings, rules: rules, limiter: limiter, location: location)
         } else {
             let router = self.router
             await withTaskGroup(of: Void.self) { group in
                 for (index, input) in request.inputs.enumerated() {
                     group.addTask {
                         await limiter.run {
-                            await ConversionService.convertOne(job, index: index, input: input, router: router, tools: tools, settings: settings, location: location)
+                            await ConversionService.convertOne(job, index: index, input: input, router: router, tools: tools, settings: settings, rules: rules, location: location)
                         }
                     }
                 }
@@ -145,7 +148,7 @@ public final class ConversionService: ObservableObject {
         onFinish?(job)
     }
 
-    private nonisolated static func convertOne(_ job: ConversionJob, index: Int, input: URL, router: Router, tools: Tools, settings: ConversionSettings, location: OutputLocation) async {
+    private nonisolated static func convertOne(_ job: ConversionJob, index: Int, input: URL, router: Router, tools: Tools, settings: ConversionSettings, rules: OutputPlacer.Rules, location: OutputLocation) async {
         let request = job.request
         guard !Task.isCancelled else { return }
         var temps: [URL] = []
@@ -185,7 +188,7 @@ public final class ConversionService: ObservableObject {
                     currentFormat = step.output
                 }
             }
-            let placed = try OutputPlacer.place(items, in: OutputPlacer.directory(for: input, location: location))
+            let placed = try OutputPlacer.place(items, in: OutputPlacer.directory(for: input, location: location), rules: rules)
             await MainActor.run {
                 job.outputs += placed
                 job.finished += 1
@@ -202,7 +205,7 @@ public final class ConversionService: ObservableObject {
         }
     }
 
-    private func combine(_ job: ConversionJob, tools: Tools, settings: ConversionSettings, limiter: AsyncLimiter, location: OutputLocation) async {
+    private func combine(_ job: ConversionJob, tools: Tools, settings: ConversionSettings, rules: OutputPlacer.Rules, limiter: AsyncLimiter, location: OutputLocation) async {
         let request = job.request
         let formats = request.inputs.map { Formats.detect($0) ?? Formats.folder }
         guard let combiner = router.combiner(for: formats, into: request.target.format) else {
@@ -228,7 +231,7 @@ public final class ConversionService: ObservableObject {
                 let items = try await combiner.combine(request.inputs, to: request.target.format,
                                                        into: dir, baseName: baseName, context: context)
                 try Task.checkCancellation()
-                return .success(try OutputPlacer.place(items, in: destination))
+                return .success(try OutputPlacer.place(items, in: destination, rules: rules))
             } catch {
                 return .failure(error)
             }

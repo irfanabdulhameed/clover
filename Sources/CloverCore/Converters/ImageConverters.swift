@@ -56,13 +56,14 @@ enum ImageKit {
         return writableTypes.contains(type)
     }
 
-    /// 0...1 for a quality option id.
-    static func quality(_ id: String) -> Double {
-        switch id {
-        case "best": 0.92
-        case "small": 0.6
-        default: 0.8
-        }
+    /// Quality in percent (0...100) for a quality option id, from the user's settings (92 / 80 / 60 by default).
+    static func qualityPercent(_ id: String, settings: ConversionSettings) -> Double {
+        min(max(settings.imageQuality[id], 0), 100)
+    }
+
+    /// 0...1 for a quality option id, the way ImageIO wants it.
+    static func quality(_ id: String, settings: ConversionSettings = ConversionSettings()) -> Double {
+        qualityPercent(id, settings: settings) / 100
     }
 
     // MARK: Reading
@@ -319,7 +320,7 @@ public struct ImageIOConverter: Converter {
             }
             var properties = ImageKit.metadata(of: loaded, keepOrientation: keepsTag, format: to)
             if ["jpg", "heic", "avif"].contains(to.id) {
-                properties[kCGImageDestinationLossyCompressionQuality] = ImageKit.quality(context.quality)
+                properties[kCGImageDestinationLossyCompressionQuality] = ImageKit.quality(context.quality, settings: context.settings)
             }
             if to == Formats.tiff {
                 var tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
@@ -354,12 +355,7 @@ public struct WebPConverter: Converter {
 
     public func convert(_ input: URL, from: Format, to: Format, into directory: URL, baseName: String, context: StepContext) async throws -> [URL] {
         guard let cwebp = context.tools.cwebp else { throw ConversionError.toolMissing("cwebp") }
-        let quality: Int
-        switch context.quality {
-        case "best": quality = 92
-        case "small": quality = 60
-        default: quality = 80
-        }
+        let quality = Int(ImageKit.qualityPercent(context.quality, settings: context.settings).rounded())
 
         // cwebp ignores the EXIF orientation and is picky about TIFF. Hand it a PNG
         // (same pixels, upright, same profile) in those cases.
