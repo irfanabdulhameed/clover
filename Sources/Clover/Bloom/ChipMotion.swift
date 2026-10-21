@@ -9,9 +9,9 @@ import Foundation
 enum ChipMotion {
     // MARK: Sizes
 
-    static let chipSize = CGSize(width: 300, height: 56)
+    static let chipSize = CGSize(width: 340, height: 68)
     /// The slot at the chip's leading edge that holds the ring, and later the thumbnail.
-    static let slot: CGFloat = 40
+    static let slot: CGFloat = 44
     /// The ring the clover leaves at its hub, so the chip can pick it up.
     static let dropRingDiameter: CGFloat = 56
     static let ringLineWidth: CGFloat = 3

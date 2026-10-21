@@ -241,18 +241,18 @@ struct ResultChipView: View {
     }
 
     private func content(_ d: ChipDisplay, _ v: ChipValues) -> some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 10) {
+        HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 leading(d, v)
                     .frame(width: ChipMotion.slot, height: ChipMotion.slot)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(d.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(d.subtitle)
-                        .font(.system(size: 11).monospacedDigit())
+                        .font(.system(size: 12).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -272,8 +272,8 @@ struct ResultChipView: View {
             trailing(d)
                 .opacity(v.controlsOpacity)
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 10)
+        .padding(.leading, 14)
+        .padding(.trailing, 14)
     }
 
     @ViewBuilder
@@ -323,7 +323,7 @@ struct ResultChipView: View {
 
     @ViewBuilder
     private func trailing(_ d: ChipDisplay) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             if d.canUndo {
                 Button("Undo") { actions.focus(); actions.undo() }
                     .buttonStyle(ChipTextButtonStyle())
@@ -407,9 +407,9 @@ struct ChipIconButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(.secondary)
-                .frame(width: 22, height: 22)
+                .frame(width: 26, height: 26)
                 .background(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.18 : (hovering ? 0.10 : 0.05))))
                 .contentShape(Circle())
                 .onHover { hovering = $0 }
@@ -429,10 +429,10 @@ struct ChipTextButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 9)
-                .frame(height: 22)
+                .padding(.horizontal, 12)
+                .frame(height: 26)
                 .background(Capsule().fill(Color.primary.opacity(configuration.isPressed ? 0.20 : (hovering ? 0.13 : 0.07))))
                 .contentShape(Capsule())
                 .onHover { hovering = $0 }
