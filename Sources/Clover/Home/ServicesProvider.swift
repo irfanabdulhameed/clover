@@ -7,7 +7,10 @@ final class ServicesProvider: NSObject {
 
     init(bloom: BloomController) { self.bloom = bloom }
 
-    @objc func convertFiles(_ pboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+    /// Info.plist names the message "convertFiles", so AppKit calls `convertFiles:userData:error:`.
+    /// The selector is spelled out here so a Swift rename can't break it.
+    @objc(convertFiles:userData:error:)
+    func convertFiles(_ pboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         let urls = (pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         guard !urls.isEmpty else {
             error.pointee = "No files were selected." as NSString

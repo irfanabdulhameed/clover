@@ -41,6 +41,12 @@ final class RecentStore: ObservableObject {
         save()
     }
 
+    /// Takes one item off the list. The files stay where they are.
+    func remove(_ item: RecentItem) {
+        items.removeAll { $0.id == item.id }
+        save()
+    }
+
     func clear() {
         items = []
         save()
