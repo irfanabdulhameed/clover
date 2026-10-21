@@ -34,12 +34,16 @@ public enum Options {
 public struct StepContext: Sendable {
     public let option: Option?
     public let tools: Tools
+    /// The user's quality and naming choices.
+    public let settings: ConversionSettings
     /// Report progress of this step, 0...1. Safe to call from any thread.
     public let progress: @Sendable (Double) -> Void
 
-    public init(option: Option?, tools: Tools, progress: @escaping @Sendable (Double) -> Void = { _ in }) {
+    public init(option: Option?, tools: Tools, settings: ConversionSettings = ConversionSettings(),
+                progress: @escaping @Sendable (Double) -> Void = { _ in }) {
         self.option = option
         self.tools = tools
+        self.settings = settings
         self.progress = progress
     }
 

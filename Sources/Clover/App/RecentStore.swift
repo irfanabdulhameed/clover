@@ -6,17 +6,19 @@ struct RecentItem: Codable, Identifiable, Equatable {
     var id = UUID()
     let title: String
     let inputNames: [String]
+    /// The original files, for "Convert again". Missing in items saved by older versions.
+    var inputs: [URL]? = nil
     let outputs: [URL]
     let bytesIn: Int64
     let bytesOut: Int64
     let date: Date
 }
 
-/// The last 30 conversions, stored in UserDefaults.
+/// The last 500 conversions, stored in UserDefaults.
 @MainActor
 final class RecentStore: ObservableObject {
     private let key = "recents"
-    private let limit = 30
+    private let limit = 500
     @Published private(set) var items: [RecentItem] = []
 
     init() {
@@ -29,6 +31,7 @@ final class RecentStore: ObservableObject {
     func add(_ job: ConversionJob) {
         guard job.state == .done, !job.outputs.isEmpty else { return }
         let item = RecentItem(title: job.title, inputNames: job.request.inputs.map(\.lastPathComponent),
+                              inputs: job.request.inputs,
                               outputs: job.outputs, bytesIn: job.bytesIn, bytesOut: job.bytesOut, date: Date())
         items.insert(item, at: 0)
         if items.count > limit { items.removeLast(items.count - limit) }

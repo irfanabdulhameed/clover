@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
         router = Registry.makeRouter(tools: tools)
         service = ConversionService(router: router)
         service.location = { [settings] in settings.outputLocation }
+        service.settings = { [settings] in settings.conversion }
         service.onFinish = { [recents] job in recents.add(job) }
     }
 
@@ -33,6 +34,13 @@ final class AppModel: ObservableObject {
 
     func targets(for files: [URL]) -> [Target] {
         catalog.targets(for: files)
+    }
+
+    /// The clover for these files: the user's leaves, and the rest behind More.
+    func arrangement(for files: [URL]) -> Arrangement {
+        let formats = files.compactMap(Formats.detect)
+        let key = formats.count == files.count ? LayoutKey.key(for: formats) : .mixed
+        return LeafArranger.arrange(catalog.targets(for: files), layout: settings.layout(for: key))
     }
 
     @discardableResult

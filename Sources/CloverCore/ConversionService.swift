@@ -64,6 +64,8 @@ public final class ConversionService: ObservableObject {
     public let router: Router
     public let catalog: Catalog
     public var location: () -> OutputLocation
+    /// The user's quality and naming choices, read when each job starts.
+    public var settings: () -> ConversionSettings = { ConversionSettings() }
     @Published public private(set) var jobs: [ConversionJob] = []
     /// Called on the main thread when a job ends in any state.
     public var onFinish: ((ConversionJob) -> Void)?
@@ -113,16 +115,17 @@ public final class ConversionService: ObservableObject {
         let tools = router.tools
         let limiter = limits[request.target.format.family] ?? AsyncLimiter(2)
         let location = self.location()
+        let settings = self.settings()
 
         if request.target.combines(with: request.option) {
-            await combine(job, tools: tools, limiter: limiter, location: location)
+            await combine(job, tools: tools, settings: settings, limiter: limiter, location: location)
         } else {
             let router = self.router
             await withTaskGroup(of: Void.self) { group in
                 for (index, input) in request.inputs.enumerated() {
                     group.addTask {
                         await limiter.run {
-                            await ConversionService.convertOne(job, index: index, input: input, router: router, tools: tools, location: location)
+                            await ConversionService.convertOne(job, index: index, input: input, router: router, tools: tools, settings: settings, location: location)
                         }
                     }
                 }
@@ -142,7 +145,7 @@ public final class ConversionService: ObservableObject {
         onFinish?(job)
     }
 
-    private nonisolated static func convertOne(_ job: ConversionJob, index: Int, input: URL, router: Router, tools: Tools, location: OutputLocation) async {
+    private nonisolated static func convertOne(_ job: ConversionJob, index: Int, input: URL, router: Router, tools: Tools, settings: ConversionSettings, location: OutputLocation) async {
         let request = job.request
         guard !Task.isCancelled else { return }
         var temps: [URL] = []
@@ -169,7 +172,7 @@ public final class ConversionService: ObservableObject {
                 let temp = try OutputPlacer.makeTempDirectory()
                 temps.append(temp)
                 let share = 1.0 / Double(steps.count)
-                let context = StepContext(option: request.option, tools: tools) { p in
+                let context = StepContext(option: request.option, tools: tools, settings: settings) { p in
                     let fraction = (Double(i) + min(max(p, 0), 1)) * share
                     Task { @MainActor in job.report(index: index, fraction: fraction) }
                 }
@@ -199,7 +202,7 @@ public final class ConversionService: ObservableObject {
         }
     }
 
-    private func combine(_ job: ConversionJob, tools: Tools, limiter: AsyncLimiter, location: OutputLocation) async {
+    private func combine(_ job: ConversionJob, tools: Tools, settings: ConversionSettings, limiter: AsyncLimiter, location: OutputLocation) async {
         let request = job.request
         let formats = request.inputs.map { Formats.detect($0) ?? Formats.folder }
         guard let combiner = router.combiner(for: formats, into: request.target.format) else {
@@ -219,7 +222,7 @@ public final class ConversionService: ObservableObject {
             do {
                 let dir = try OutputPlacer.makeTempDirectory()
                 temp = dir
-                let context = StepContext(option: request.option, tools: tools) { p in
+                let context = StepContext(option: request.option, tools: tools, settings: settings) { p in
                     Task { @MainActor in job.report(index: 0, fraction: p) }
                 }
                 let items = try await combiner.combine(request.inputs, to: request.target.format,
