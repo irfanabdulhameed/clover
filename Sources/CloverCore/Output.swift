@@ -33,8 +33,13 @@ public enum OutputPlacer {
         }
     }
 
+    private static let placeLock = NSLock()
+
     /// Moves each item from a temp folder into `directory` under a free name.
+    /// One call at a time, so two parallel jobs never pick the same free name and overwrite each other.
     public static func place(_ items: [URL], in directory: URL) throws -> [URL] {
+        placeLock.lock()
+        defer { placeLock.unlock() }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try items.map { item in
             let destination = freeURL(for: item.lastPathComponent, in: directory)
