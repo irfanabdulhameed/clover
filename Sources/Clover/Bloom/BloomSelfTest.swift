@@ -700,47 +700,97 @@ enum BloomSelfTest {
         expect(M.slot(0, count: 6, center: c, cancelled, now: 7).look.opacity == 0 && M.disc(cancelled, now: 7).opacity == 0
                && M.cancelDuration(reduce: false) == 0, "cancel hides the clover at once")
 
-        // Choosing a leaf: the wave.
+        // Choosing a leaf: light through the glass.
         let d0: TimeInterval = 10
+        let origin = L.leafCenter(1, of: 6)
+        let centers = (0..<6).map { L.leafCenter($0, of: 6) }
         e.drop = BloomEvents.Drop(at: d0, slot: 1, chip: nil, pill: nil)
-        expect(M.slot(1, count: 6, center: c, e, now: d0).fill == .flash && M.slot(1, count: 6, center: c, e, now: d0 + 0.02).fill == .lit,
-               "the chosen slot flashes white for one frame")
-        let pops = stride(from: 0.0, through: 0.2, by: 0.004).map { M.slot(1, count: 6, center: c, e, now: d0 + $0).look.scale }
-        expect(abs(pops.max()! - M.Drop.popPeak) < 0.003 && pops.last! == 1, "and pops to 108 %, back to its size")
-        let glow0 = M.dropGlow(e, now: d0 + 0.05), glowEnd = M.dropGlow(e, now: d0 + M.Drop.glowFade + 0.001)
-        expect((glow0?.opacity ?? 0) > 0.9 && glowEnd == nil, "a glow blooms behind it at once and fades with the wave")
-        let w0 = M.wave(e, now: d0)!, wMid = M.wave(e, now: d0 + M.Drop.wave * 0.467)!
-        expect(w0.radius == 0 && w0.strength == 1, "the wave starts at the chosen slot")
-        expect(abs(wMid.radius / M.Drop.waveReach - 0.75) < 0.03, "fast attack: 75 % of its reach at 47 % of its time")
+        func slotLook(_ i: Int, _ t: TimeInterval) -> (look: Look, fill: SlotFill) {
+            M.slot(i, count: 6, center: centers[i], e, now: d0 + t, origin: origin)
+        }
+        let chosenFills = stride(from: 0.0, through: M.Drop.ringAt - 0.01, by: 0.004).map { slotLook(1, $0).fill }
+        expect(chosenFills.allSatisfy { $0 == .lit }, "no white flash: the chosen leaf keeps its bright hover look")
+        expect(abs(slotLook(1, 0).look.scale - M.Hover.lift) < 0.001 && abs(slotLook(1, M.Drop.choose).look.scale - M.Drop.chooseLift) < 0.001,
+               "it lifts from 103 % to 107 % in 90 ms")
+        let lifts = stride(from: 0.0, through: M.Drop.glideStart, by: 0.004).map { slotLook(1, $0).look.scale }
+        expect(lifts.max()! <= M.Drop.chooseLift + 0.0001, "with no overshoot")
+        expect(M.chosenGlow(e, now: d0 + M.Drop.choose) > 0.99 && M.chosenGlow(e, now: d0 + M.Drop.glideStart + M.Drop.glowOut + 0.001) == 0,
+               "a soft inner glow comes up with it and goes as it glides")
+        // One thin wave from the chosen leaf, over the disc only.
+        let reach = M.waveReach(origin)
+        expect(M.wave(e, now: d0 + 0.01, origin: origin) == nil && (M.wave(e, now: d0 + M.Drop.waveStart + 1e-6, origin: origin)?.radius ?? 1) < 0.1,
+               "the wave sets off at 20 ms from the leaf's middle")
+        let mid = M.wave(e, now: d0 + M.Drop.waveStart + M.Drop.wave * 0.467, origin: origin)!
+        expect(abs(mid.radius / reach - 0.75) < 0.03, "fast attack: 75 % of its way at 47 % of its time")
         var radii: [CGFloat] = []
-        for i in 0..<100 { radii.append(M.wave(e, now: d0 + M.Drop.wave * Double(i) / 100)!.radius) }
-        expect(zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 } && radii.max()! <= M.Drop.waveReach,
-               "the wave never overshoots or comes back")
-        expect(M.Drop.waveReach >= G.discRadius * 2 - 1, "it crosses the whole disc and past the rim")
-        expect(M.wave(e, now: d0 + M.Drop.wave + 0.001) == nil, "it is gone at \(Int(M.Drop.wave * 1000)) ms")
-        let near = M.wave(e, now: d0 + 0.05)!, far = M.wave(e, now: d0 + 0.3)!
-        expect(near.bendScale() > 1 && far.bendScale() > 1 && near.bendScale() <= M.Drop.waveMaxScale && far.strength < near.strength,
-               "the band bends what's under it, less as it travels")
-        expect(abs((far.bendScale() - 1) * far.radius - M.Drop.waveShift * CGFloat(far.strength)) < 0.5, "the middle of the band pushes about 8 pt outward")
-        expect(abs((far.bendScale(0.5) - 1) * far.radius - M.Drop.waveShift * CGFloat(far.strength) / 2) < 0.5, "its sides half that, so it ramps")
-        // The others stay through the wave, then fold away in 120 ms.
-        expect(M.slot(0, count: 6, center: c, e, now: d0 + M.Drop.foldAt - 0.001).look.opacity > 0.8, "the others stay while the wave rolls")
-        expect(M.slot(0, count: 6, center: c, e, now: d0 + M.Drop.foldAt + M.Drop.fold + 0.001).look.opacity == 0, "then fold into the hub in 120 ms")
-        expect(M.Drop.fold < M.Drop.wave, "the fold is faster than the wave")
-        // The chosen slot gathers to the centre and becomes the ring.
-        let gathered = M.slot(1, count: 6, center: c, e, now: d0 + M.Drop.glideDelay + M.Drop.glide - 0.001).look
-        expect(abs(gathered.offset.height + c.y) < 0.6, "the chosen slot gathers to the hub")
+        for i in 0..<100 { radii.append(M.wave(e, now: d0 + M.Drop.waveStart + 1e-6 + M.Drop.wave * Double(i) / 100, origin: origin)!.radius) }
+        expect(zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 } && radii.max()! <= reach, "the wave never overshoots or comes back")
+        expect(abs(reach - (hypot(origin.x, origin.y) + G.discRadius)) < 0.01, "it reaches the far side of the disc")
+        expect(M.wave(e, now: d0 + M.Drop.waveStart + M.Drop.wave + 0.001, origin: origin) == nil, "and is gone at 380 ms")
+        expect(M.Drop.waveCore <= 2.5 && M.Drop.waveGlow <= 14 && M.Drop.waveTrailLight <= 0.08, "a thin front, a faint light behind it")
+        expect(M.Drop.waveRimFade > 0, "it fades out before the rim and is clipped to the disc")
+        // Each leaf is nudged as the front reaches its middle, in order of distance.
+        let order = (0..<6).filter { $0 != 1 }.sorted { L.distance(centers[$0], origin) < L.distance(centers[$1], origin) }
+        let arrivals = order.map { M.waveArrives(L.distance(centers[$0], origin), origin: origin) }
+        expect(zip(arrivals, arrivals.dropFirst()).allSatisfy { $0 <= $1 + 1e-9 }, "the nearer leaves are nudged first")
+        for i in order {
+            let distance = L.distance(centers[i], origin)
+            let arrive = M.waveArrives(distance, origin: origin)
+            let atFront = M.wave(e, now: d0 + arrive, origin: origin)?.radius ?? -1
+            expect(abs(atFront - distance) < 0.5, "leaf \(i) is nudged when the front reaches its middle")
+            // Its peak, before the fold can begin for the farthest leaves.
+            let peak = stride(from: arrive, through: arrive + M.Drop.nudge * 0.6, by: 0.002).map { slotLook(i, $0).look }
+            let away = peak.map { hypot($0.offset.width, $0.offset.height) }
+            expect(away.max()! > M.Drop.nudgeShift - 0.1 && away.max()! <= M.Drop.nudgeShift + 0.001 && peak.map(\.scale).max()! <= M.Drop.nudgeScale + 0.0001,
+                   "leaf \(i): out about 3.5 pt and to 103 %, no further")
+            let out = CGVector(dx: centers[i].x - origin.x, dy: centers[i].y - origin.y)
+            let best = peak.max { hypot($0.offset.width, $0.offset.height) < hypot($1.offset.width, $1.offset.height) }!
+            expect(best.offset.width * out.dx + best.offset.height * out.dy > 0, "leaf \(i): pushed away from the chosen leaf")
+            let back = slotLook(i, arrive + M.Drop.nudge + 0.001).look
+            expect(back.offset == .zero || back.opacity < 1, "leaf \(i): back in place after 180 ms")
+        }
+        let hubPeak = stride(from: 0.0, through: M.Drop.gatherAt, by: 0.002).map { M.hub(e, now: d0 + $0, origin: origin) }
+        let hubAway = hubPeak.map { hypot($0.offset.width, $0.offset.height) }.max()!
+        expect(hubAway > 1 && hubAway <= M.Drop.hubNudgeShift + 0.001, "the hub is nudged too, less")
+        // Gather: the others fold one by one, the farthest last, all gone by the handoff.
+        let gone = order.map { i in stride(from: M.Drop.gatherAt, through: M.Drop.handoff, by: 0.002).first { slotLook(i, $0).look.opacity == 0 } ?? 1 }
+        expect(zip(gone, gone.dropFirst()).allSatisfy { $0 <= $1 + 1e-9 } && gone.last! <= M.Drop.handoff,
+               "the others fold to the hub one by one, the farthest last, before the handoff")
+        let folding = slotLook(order.last!, gone.last! - 0.12).look
+        expect(folding.blur > 0 && folding.scale < 1, "they shrink and blur as they fold")
+        // Nothing hangs outside the glass: a leaf still showing stays inside the contracting disc.
+        var outside = 0
+        for t in stride(from: M.Drop.gatherAt, through: M.Drop.handoff, by: 0.005) {
+            let disc = M.disc(e, now: d0 + t).scale * G.discRadius
+            for i in order {
+                let look = slotLook(i, t).look
+                let reachOut = hypot(centers[i].x + look.offset.width, centers[i].y + look.offset.height) + 50 * look.scale
+                if look.opacity > 0.15 && reachOut > disc + 4 { outside += 1 }
+            }
+        }
+        expect(outside == 0, "the leaves are gone before the glass draws in under them: \(outside) frames out")
+        // The chosen leaf glides in, the hub becomes the ring on its glass, no dark disc.
+        let gathered = slotLook(1, M.Drop.glideStart + M.Drop.glide - 0.001).look
+        expect(abs(gathered.offset.width + origin.x) < 0.6 && abs(gathered.offset.height + origin.y) < 0.6, "the chosen leaf glides to the hub")
+        let landing = stride(from: M.Drop.glideStart, to: M.Drop.ringAt, by: 0.002).map { slotLook(1, $0).look.opacity }
+        expect(landing.allSatisfy { $0 == 1 } && slotLook(1, M.Drop.ringAt).look.opacity == 0,
+               "solid all the way in, then it flips into the ring in one frame: no ghost")
         expect(M.carryRing(e, now: d0 + M.Drop.ringAt - 0.001) == nil && M.carryRing(e, now: d0 + M.Drop.ringAt + 0.001) != nil,
-               "and becomes the ring")
-        expect(M.carryRing(e, now: d0 + M.Drop.handoff) == .still, "at the handoff the ring sits still at the hub")
-        expect(abs(M.disc(e, now: d0 + M.Drop.handoff).scale - M.Drop.carrySide / (G.discRadius * 2)) < 0.001, "the disc shrinks to the ring's size")
-        expect(M.Drop.handoff == 0.6 && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 600 ms, no gap")
+               "the ring appears on the hub")
+        expect(M.carryRing(e, now: d0 + M.Drop.handoff) == .still, "and sits still at the handoff")
+        let hubEnd = M.hub(e, now: d0 + M.Drop.handoff, origin: origin)
+        expect(abs(hubEnd.scale * G.hubSize - M.Drop.ringSide) < 0.5 && hubEnd.opacity == 1, "the hub has become the ring's frosted glass, 56 pt")
+        expect(M.hubContent(e, now: d0 + M.Drop.hubContentAt + M.Drop.hubContent + 0.001).opacity == 0, "its picture and capsule have gone")
+        let discEnd = M.disc(e, now: d0 + M.Drop.handoff)
+        expect(abs(discEnd.scale * G.discRadius * 2 - M.Drop.discTo) < 0.5 && discEnd.opacity == 1, "the disc's glass contracts to just under the ring")
+        expect(M.Drop.handoff == 0.55 && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 550 ms, no gap")
+        expect(M.Drop.ringSide == ChipMotion.dropRingDiameter, "the same 56 pt ring")
         expect(M.busyUntil(e, count: 6) >= d0 + M.Drop.handoff, "the frame clock runs to the handoff")
 
         // Reduce motion: no wave and no fold, a fade, then the ring until the chip.
         var r = e
         r.reduce = true
-        expect(M.wave(r, now: d0 + 0.1) == nil && M.dropGlow(r, now: d0 + 0.02) == nil, "reduce motion: no wave, no glow")
+        expect(M.wave(r, now: d0 + 0.1, origin: origin) == nil && M.chosenGlow(r, now: d0 + 0.05) == 0, "reduce motion: no wave, no glow")
         let faded = M.slot(0, count: 6, center: c, r, now: d0 + M.fade / 2).look
         expect(faded.scale == 1 && faded.blur == 0 && faded.offset == .zero && faded.opacity < 0.85, "reduce motion: the others fade in place")
         expect(M.slot(1, count: 6, center: c, r, now: d0 + M.fade).look.opacity == 0, "reduce motion: gone in 150 ms")

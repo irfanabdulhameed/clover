@@ -189,7 +189,7 @@ enum BloomDebug {
         times = []
         clock.now = t0 + 2
         m.drop()
-        for i in 0...72 { frame(t0 + 2 + Double(i) / 120) }
+        for i in 0...66 { frame(t0 + 2 + Double(i) / 120) }
         report("drop wave and carry", times)
         return 0
     }
@@ -256,15 +256,15 @@ enum BloomDebug {
 
         let ms: (Double) -> TimeInterval = { t0 + $0 / 1000 }
         let rows: [(String, BloomModel, ColorScheme, [Double])] = [
-            ("drop: the wave", drop.0, .dark, [0, 60, 140, 220, 320, 420, 520, 600]),
-            ("drop: the wave", dropLight.0, .light, [0, 60, 140, 220, 320, 420, 520, 600]),
+            ("drop", drop.0, .dark, [0, 45, 90, 140, 200, 280, 360, 420, 480, 550]),
+            ("drop", dropLight.0, .light, [0, 45, 90, 140, 200, 280, 360, 420, 480, 550]),
             ("open, instant", open.0, .dark, [0]),
             ("open, instant", openLight.0, .light, [0]),
             ("hover, instant", hover.0, .dark, [0]),
             ("chips, instant", chipsIn.0, .dark, [0]),
             ("chips gone at once", chipsOut.0, .dark, [0]),
             ("cancel: gone at once", cancel.0, .dark, [0]),
-            ("reduce motion: drop", reduceDrop.0, .dark, [0, 75, 150, 300, 600]),
+            ("reduce motion: drop", reduceDrop.0, .dark, [0, 75, 150, 300, 550]),
         ]
         let tile: CGFloat = 520
         let sheet = VStack(alignment: .leading, spacing: 0) {

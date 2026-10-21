@@ -74,12 +74,10 @@ final class BloomController: BloomInteractionDelegate {
                 SlotLabel(title: "JPG", symbol: "ellipsis", hue: .orange, lit: true, width: 80)
                 CapsuleLabel(text: "2.2 MB")
                 ChipView(title: "Balanced", isDefault: true, isLit: false, isFocused: false, hue: .orange)
-                // The wave's light and band masks, so the first choice isn't the first time.
-                let wave = Wave(radius: 120, band: Motion.Drop.waveBand, strength: 1, lift: 0.05)
-                let side = BloomGeometry.panelSize, origin = CGPoint(x: side / 2, y: side / 2 - 100)
-                Circle().fill(Color.white).frame(width: 200, height: 200)
-                    .mask(WaveMask(origin: origin, wave: wave, part: .sides, side: side))
-                WaveLight(origin: origin, wave: wave, side: side)
+                // The wave of light and the ring, so the first choice isn't the first time.
+                let side = BloomGeometry.panelSize
+                WaveFront(origin: CGPoint(x: side / 2, y: side / 2 - 100), wave: Wave(radius: 120, strength: 1), side: side)
+                ChipRing(progress: 0, diameter: Motion.Drop.ringSide)
             }.environment(\.bloomSnapshot, true))
             _ = warm.cgImage
         }
@@ -501,8 +499,8 @@ final class BloomController: BloomInteractionDelegate {
 
 /// Where the clover was when a conversion started from it, so the result chip can
 /// appear in the same place: the hub's centre on screen. The clover's carry ends there
-/// `Motion.Drop.handoff` (600 ms) after the drop, as a `Motion.Drop.carrySide` clover-green
-/// disc with a `Motion.Drop.ringSide` ring on it; the chip starts as that ring.
+/// `Motion.Drop.handoff` (550 ms) after the drop, as the chip's own `ChipRing`, at
+/// `Motion.Drop.ringSide`, on the hub's glass; the chip starts as that ring.
 @MainActor
 enum BloomAnchor {
     private static var last: (point: NSPoint, time: Date)?

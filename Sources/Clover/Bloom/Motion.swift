@@ -122,68 +122,72 @@ enum Motion {
         static let close: TimeInterval = 0.12
     }
 
-    // MARK: Drop: the AirDrop wave
+    // MARK: Drop: light through the glass
 
-    /// Choosing a leaf: a flash and a glow, a wave of light that bends the slots as it
-    /// rolls across the disc, then the fold into the progress ring. About 0.6 s.
+    /// Choosing a leaf, about 0.55 s: the leaf brightens and lifts, one thin wave of light
+    /// passes through the glass from it, each leaf the wave reaches is nudged like water,
+    /// then the others fold to the hub one by one and the hub becomes the progress ring.
     enum Drop {
-        /// 0 ms: the chosen slot flashes white for one frame and pops.
-        static let flash: TimeInterval = 1.0 / 60
-        static let pop: TimeInterval = 0.12
-        static let popPeak: CGFloat = 1.08
-        /// A bright soft glow blooms behind it: white core, clover-green edge.
-        static let glowRise: TimeInterval = 0.05
-        static let glowFade: TimeInterval = 0.42
-        static let glowFrom: CGFloat = 0.95
-        static let glowTo: CGFloat = 1.35
-        /// 0 to 420 ms: a ring of light expands from the chosen slot across the disc and
-        /// just past the rim.
-        static let wave: TimeInterval = 0.42
-        static var waveReach: CGFloat { BloomGeometry.discRadius * 2 }
-        /// The band where the slots bend.
-        static let waveBand: CGFloat = 36
-        /// How far the band pushes what's under it outward, like a lens, at full strength.
-        static let waveShift: CGFloat = 8
-        static let waveMaxScale: CGFloat = 1.12
-        /// The bent copy is a little brighter.
-        static let waveBrighten: Double = 0.14
-        /// The soft white light trailing the leading edge, and how far it trails.
-        static let waveLight: Double = 0.22
-        static let waveTrail: CGFloat = 0.9
-        /// The thin iridescent stroke on the leading edge.
-        static let waveEdge: Double = 0.5
-        static let waveEdgeWidth: CGFloat = 2
-        /// The disc's slight brightness lift while the wave crosses it.
-        static let discLift: Double = 0.08
-        /// The wave shows this far past the rim, then fades out.
-        static let wavePastRim: CGFloat = 6
-        /// A tray choice: the tray stays for the flash, then goes.
-        static let trayHold: TimeInterval = 0.05
-        /// 380 ms: the other slots fold into the hub, blurring.
-        static let foldAt: TimeInterval = 0.38
-        static let fold: TimeInterval = 0.12
-        static let foldTo: CGFloat = 0.45
-        static let foldBlur: CGFloat = 10
-        /// The chosen slot gathers to the centre, shrinking.
-        static let glideDelay: TimeInterval = 0.38
-        static let glide: TimeInterval = 0.17
-        /// The slot's size when it arrives, as a scale of its own.
-        static let glideTo: CGFloat = 0.62
-        /// Then it flips into the progress ring, with a pop.
-        static let ringAt: TimeInterval = 0.55
-        static let ringPop: TimeInterval = 0.045
-        /// The disc shrinks behind it to the ring's backing.
-        static let discDelay: TimeInterval = 0.40
-        static let disc: TimeInterval = 0.17
+        /// 0 to 90 ms: the chosen leaf at full hover brightness, with a soft inner glow,
+        /// lifts from the hover's 103 % to this.
+        static let choose: TimeInterval = 0.09
+        static let chooseLift: CGFloat = 1.07
+        /// 20 to 380 ms: one thin wave of light from the chosen leaf's middle across the
+        /// disc, fading as it nears the rim.
+        static let waveStart: TimeInterval = 0.02
+        static let wave: TimeInterval = 0.36
+        /// Its white core, the soft glow around it, and the faint light behind it.
+        static let waveCore: CGFloat = 2.25
+        static let waveGlow: CGFloat = 12
+        static let waveTrail: CGFloat = 40
+        static let waveTrailLight: Double = 0.07
+        /// It fades out over this distance inside the rim, and never shows past it.
+        static let waveRimFade: CGFloat = 40
+        /// When the front reaches a leaf's middle, the leaf is nudged outward and back.
+        static let nudge: TimeInterval = 0.18
+        static let nudgeRise: Double = 0.3
+        static let nudgeShift: CGFloat = 3.5
+        static let nudgeScale: CGFloat = 1.03
+        /// The hub, less.
+        static let hubNudgeShift: CGFloat = 2
+        static let hubNudgeScale: CGFloat = 1.015
+        /// 340 to 540 ms: the others fold to the hub one by one, the farthest last. They
+        /// fold with a fast attack and fade quickly, so they are gone before the disc's glass
+        /// draws in under them.
+        static let gatherAt: TimeInterval = 0.34
+        static let gatherStagger: TimeInterval = 0.05
+        static let fold: TimeInterval = 0.15
+        static let foldTo: CGFloat = 0.5
+        static let foldBlur: CGFloat = 7
+        /// The option chips go first, quickly.
+        static let chipsFold: TimeInterval = 0.12
+        /// The disc's glass contracts to just under the ring, once the leaves are going.
+        static let discAt: TimeInterval = 0.44
+        static let disc: TimeInterval = 0.11
+        static let discTo: CGFloat = 62
+        /// The hub's picture and capsule go, and the hub shrinks to the ring's size.
+        static let hubContentAt: TimeInterval = 0.34
+        static let hubContent: TimeInterval = 0.10
+        static let hubContentBlur: CGFloat = 6
+        static let hubShrinkAt: TimeInterval = 0.42
+        static let hubShrink: TimeInterval = 0.11
+        /// The chosen leaf glides into the hub, shrinking, solid all the way, and flips into
+        /// the ring in one frame as it lands. Its inner glow goes as it sets off.
+        static let glideStart: TimeInterval = 0.36
+        static let glide: TimeInterval = 0.13
+        static let glideTo: CGFloat = 0.35
+        static let glowOut: TimeInterval = 0.08
+        /// The ring appears on the hub's glass with a small pop, and is still by the handoff.
+        static let ringAt: TimeInterval = 0.49
+        static let ringPop: TimeInterval = 0.05
+        static let ringPopPeak: CGFloat = 1.06
         /// The result chip takes over the ring at this moment, at `BloomAnchor`; the panel
         /// hides. `ChipMotion.ringAppearDelay` is the same moment.
-        static let handoff: TimeInterval = 0.60
-        /// The ring: a clover-green disc with a white ring on it.
-        static let carrySide: CGFloat = 64
-        static let ringSide: CGFloat = 56
-        static let ringWidth: CGFloat = 3
-        static let ringOpacity: Double = 0.9
-        static let trackOpacity: Double = 0.2
+        static let handoff: TimeInterval = 0.55
+        /// The ring is the chip's own (`ChipRing`), at its size.
+        static var ringSide: CGFloat { ChipMotion.dropRingDiameter }
+        /// A tray choice: the tray stays a moment, then goes.
+        static let trayHold: TimeInterval = 0.05
     }
 
     // MARK: Cancel
@@ -315,18 +319,10 @@ enum SlotFill: Equatable {
 /// The wave of light at a moment: its radius from the chosen slot's middle, the band where
 /// the slots bend, how strong it still is (1 to 0 as it travels), and the disc's lift.
 struct Wave: Equatable {
+    /// The front's distance from the chosen leaf's middle.
     var radius: CGFloat
-    var band: CGFloat
+    /// 1 when it sets off, 0 when it's gone.
     var strength: Double
-    var lift: Double
-
-    /// A bent copy's scale about the wave's centre: what's under the band moves outward by
-    /// `share` of `Motion.Drop.waveShift`. The band's middle takes the whole shift, its
-    /// sides half, so the bend ramps up and down instead of tearing.
-    func bendScale(_ share: CGFloat = 1) -> CGFloat {
-        let shift = Motion.Drop.waveShift * CGFloat(strength) * share
-        return min(1 + shift / max(radius, 1), 1 + (Motion.Drop.waveMaxScale - 1) * share)
-    }
 }
 
 extension Motion {
@@ -336,10 +332,9 @@ extension Motion {
         if let drop = e.drop {
             let t = now - drop.at
             if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
-            let p = settle(phase(t, Drop.discDelay, Drop.disc))
-            // Down to the ring's backing, then gone under the green disc.
-            let to = Drop.carrySide / (BloomGeometry.discRadius * 2)
-            return Look(scale: lerp(1, to, p), opacity: 1 - phase(t, Drop.ringAt, 0.04))
+            // The glass contracts to just under the ring, and stays as its backing.
+            let p = settle(phase(t, Drop.discAt, Drop.disc))
+            return Look(scale: lerp(1, Drop.discTo / (BloomGeometry.discRadius * 2), p))
         }
         if let cancel = e.cancelAt { return cancelLook(e, now: now, since: cancel) }
         guard Open.animated else { return .still }
@@ -348,9 +343,17 @@ extension Motion {
         return Look(scale: lerp(Open.discFrom, 1, p), opacity: clamp(phase(now, e.openedAt, Open.disc) * 4))
     }
 
-    /// The centre circle with the picture.
-    static func hub(_ e: BloomEvents, now: TimeInterval) -> Look {
-        if let drop = e.drop { return foldLook(e, now: now, since: drop.at, towards: .zero) }
+    /// The centre circle. In a drop it is nudged when the wave reaches it, then shrinks to
+    /// the ring's size; `origin` is the chosen leaf's middle.
+    static func hub(_ e: BloomEvents, now: TimeInterval, origin: CGPoint = .zero) -> Look {
+        if let drop = e.drop {
+            let t = now - drop.at
+            if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
+            var look = nudged(.zero, origin: origin, t: t, shift: Drop.hubNudgeShift, scale: Drop.hubNudgeScale)
+            let p = settle(phase(t, Drop.hubShrinkAt, Drop.hubShrink))
+            look.scale *= lerp(1, Drop.ringSide / BloomGeometry.hubSize, p)
+            return look
+        }
         if let cancel = e.cancelAt { return cancelLook(e, now: now, since: cancel) }
         guard Open.animated else { return .still }
         if e.reduce { return Look(opacity: phase(now, e.openedAt, fade)) }
@@ -361,7 +364,7 @@ extension Motion {
 
     /// The size capsule on the centre circle.
     static func capsule(_ e: BloomEvents, now: TimeInterval) -> Look {
-        if let drop = e.drop { return foldLook(e, now: now, since: drop.at, towards: .zero) }
+        if e.drop != nil { return hubContent(e, now: now) }
         if let cancel = e.cancelAt { return cancelLook(e, now: now, since: cancel) }
         guard Open.animated else { return .still }
         let start = max(e.openedAt, e.slotsAt) + (e.reduce ? 0 : Open.capsuleDelay)
@@ -384,12 +387,23 @@ extension Motion {
 
     /// A slot's look: its unfold, pop and dimming, or its part in a drop or a cancel.
     /// `center` is the slot's middle in clover coordinates, for folding towards the hub.
-    static func slot(_ i: Int, count: Int, center: CGPoint, _ e: BloomEvents, now: TimeInterval) -> (look: Look, fill: SlotFill) {
+    static func slot(_ i: Int, count: Int, center: CGPoint, _ e: BloomEvents, now: TimeInterval,
+                     origin: CGPoint = .zero) -> (look: Look, fill: SlotFill) {
         if let drop = e.drop {
             if drop.slot == i { return carrySlot(center: center, e, now: now, drop: drop) }
-            // The others stay, dimmed, while the wave bends them, then fold away.
-            var look = foldLook(e, now: now, since: drop.at, towards: center)
-            look.opacity *= Hover.dimOpacity
+            let t = now - drop.at
+            if e.reduce { return (Look(opacity: Hover.dimOpacity * (1 - phase(t, 0, fade))), .frosted) }
+            // Nudged when the wave reaches it, then folded to the hub, the farthest last.
+            var look = nudged(center, origin: origin, t: t, shift: Drop.nudgeShift, scale: Drop.nudgeScale)
+            let distance = hypot(center.x - origin.x, center.y - origin.y)
+            let start = Drop.gatherAt + Drop.gatherStagger * Double(min(distance / waveReach(origin), 1))
+            let p = settle(phase(t, start, Drop.fold))
+            let s = lerp(1, Drop.foldTo, p)
+            look.scale *= s
+            look.offset.width += center.x * (s - 1)
+            look.offset.height += center.y * (s - 1)
+            look.blur = lerp(0, Drop.foldBlur, p)
+            look.opacity = Hover.dimOpacity * (1 - p)
             return (look, .frosted)
         }
         if let cancel = e.cancelAt {
@@ -508,7 +522,12 @@ extension Motion {
 
     /// Chips during a drop (they fold with the others) or a cancel.
     static func chipsLeaving(_ e: BloomEvents, now: TimeInterval) -> Look? {
-        if let drop = e.drop { return foldLook(e, now: now, since: drop.at, towards: .zero, scaleAboutCentre: false) }
+        if let drop = e.drop {
+            let t = now - drop.at
+            if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
+            let p = exit(phase(t, Drop.gatherAt, Drop.chipsFold))
+            return Look(scale: lerp(1, Drop.foldTo, p), blur: lerp(0, Drop.foldBlur, p), opacity: 1 - p)
+        }
         if let cancel = e.cancelAt {
             return Cancel.animated ? foldLook(e, now: now, since: cancel, towards: .zero, duration: Cancel.duration, scaleAboutCentre: false) : .hidden
         }
@@ -548,25 +567,62 @@ extension Motion {
         return Look(scale: lerp(Tray.pillBornScale, 1, p), blur: lerp(Tray.pillBornBlur, 0, p), opacity: clamp(raw * 3))
     }
 
-    // MARK: Drop: the wave and the carry
+    // MARK: Drop: light through the glass
 
-    /// The wave at a moment, or nil before and after it, and with reduce motion.
-    static func wave(_ e: BloomEvents, now: TimeInterval) -> Wave? {
-        guard let drop = e.drop, !e.reduce else { return nil }
-        let t = (now - drop.at) / Drop.wave
-        guard t >= 0, t < 1 else { return nil }
-        return Wave(radius: Drop.waveReach * CGFloat(settle(t)), band: Drop.waveBand,
-                    strength: 1 - exit(t), lift: Drop.discLift * sin(.pi * t))
+    /// How far the wave travels from `origin`: to the far side of the disc.
+    static func waveReach(_ origin: CGPoint) -> CGFloat {
+        hypot(origin.x, origin.y) + BloomGeometry.discRadius
     }
 
-    /// The glow that blooms behind the chosen slot: scale and opacity, or nil.
-    static func dropGlow(_ e: BloomEvents, now: TimeInterval) -> (scale: CGFloat, opacity: Double)? {
+    /// The wave at a moment, or nil before and after it, and with reduce motion.
+    static func wave(_ e: BloomEvents, now: TimeInterval, origin: CGPoint) -> Wave? {
         guard let drop = e.drop, !e.reduce else { return nil }
+        let u = (now - drop.at - Drop.waveStart) / Drop.wave
+        guard u >= 0, u < 1 else { return nil }
+        return Wave(radius: waveReach(origin) * CGFloat(settle(u)), strength: 1 - exit(u))
+    }
+
+    /// When the wave's front reaches `distance` from its origin, after the drop.
+    static func waveArrives(_ distance: CGFloat, origin: CGPoint) -> TimeInterval {
+        let f = Double(min(max(distance / waveReach(origin), 0), 0.999))
+        // The inverse of `settle`.
+        let k = 2.5
+        let u = -log(1 - f * (1 - exp(-k))) / k
+        return Drop.waveStart + u * Drop.wave
+    }
+
+    /// A nudge's strength at `t` after it starts: up quickly, back softly, never past 0.
+    static func nudge(_ t: TimeInterval) -> Double {
+        guard t > 0, t < Drop.nudge else { return 0 }
+        let u = t / Drop.nudge
+        if u < Drop.nudgeRise { return settle(u / Drop.nudgeRise) }
+        return 1 - settle((u - Drop.nudgeRise) / (1 - Drop.nudgeRise))
+    }
+
+    /// Something at `center` nudged outward from `origin` as the wave passes it.
+    static func nudged(_ center: CGPoint, origin: CGPoint, t: TimeInterval, shift: CGFloat, scale: CGFloat) -> Look {
+        let dx = center.x - origin.x, dy = center.y - origin.y
+        let distance = hypot(dx, dy)
+        guard distance > 1 else { return .still }
+        let n = CGFloat(nudge(t - waveArrives(distance, origin: origin)))
+        return Look(scale: 1 + (scale - 1) * n, offset: CGSize(width: dx / distance * shift * n, height: dy / distance * shift * n))
+    }
+
+    /// The hub's picture, count and capsule as the hub becomes the ring: they go, blurring.
+    static func hubContent(_ e: BloomEvents, now: TimeInterval) -> Look {
+        guard let drop = e.drop else { return .still }
         let t = now - drop.at
-        guard t >= 0, t < Drop.glowFade else { return nil }
-        let rise = settle(t / Drop.glowRise)
-        let fall = 1 - exit(phase(t, Drop.glowRise, Drop.glowFade - Drop.glowRise))
-        return (lerp(Drop.glowFrom, Drop.glowTo, settle(t / Drop.glowFade)), rise * fall)
+        if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
+        // Gone quickly, so nothing lingers under the leaf gliding in.
+        let p = settle(phase(t, Drop.hubContentAt, Drop.hubContent))
+        return Look(blur: lerp(0, Drop.hubContentBlur, p), opacity: 1 - p)
+    }
+
+    /// The chosen leaf's soft inner glow: 0 to 1, or 0 with no drop.
+    static func chosenGlow(_ e: BloomEvents, now: TimeInterval) -> Double {
+        guard let drop = e.drop, !e.reduce else { return 0 }
+        let t = now - drop.at
+        return settle(phase(t, 0, Drop.choose)) * (1 - phase(t, Drop.glideStart, Drop.glowOut))
     }
 
     /// A pop: up to `peak` in the first 30 % of `duration`, back to 1 by its end.
@@ -577,23 +633,20 @@ extension Motion {
         return lerp(peak, 1, settle((t - rise) / (duration - rise)))
     }
 
-    /// The carried slot: flash and pop, stay lit while the wave rolls, then gather to the
-    /// centre shrinking, and flip into the ring.
+    /// The chosen leaf: full hover brightness and a lift, then a glide into the hub,
+    /// shrinking, and a one-frame flip into the ring as it lands.
     static func carrySlot(center: CGPoint, _ e: BloomEvents, now: TimeInterval, drop: BloomEvents.Drop) -> (look: Look, fill: SlotFill) {
         let t = now - drop.at
-        let flash = t >= 0 && t < Drop.flash && drop.chip == nil && drop.pill == nil
-        if e.reduce {
-            return (Look(opacity: 1 - phase(t, 0, fade)), flash ? .flash : .lit)
-        }
+        if e.reduce { return (Look(opacity: 1 - phase(t, 0, fade)), .lit) }
         if t >= Drop.ringAt { return (.hidden, .lit) }
-        let p = settle(phase(t, Drop.glideDelay, Drop.glide))
-        let s = pop(t, duration: Drop.pop, peak: Drop.popPeak) * lerp(1, Drop.glideTo, p)
-        // Its middle travels to the hub.
+        let from = Hover.smooth ? Hover.lift : 1
+        let lift = lerp(from, Drop.chooseLift, settle(phase(t, 0, Drop.choose)))
+        let p = settle(phase(t, Drop.glideStart, Drop.glide))
         let offset = CGSize(width: -center.x * CGFloat(p), height: -center.y * CGFloat(p))
-        return (Look(scale: s, offset: offset), flash ? .flash : .lit)
+        return (Look(scale: lift * lerp(1, Drop.glideTo, p), offset: offset), .lit)
     }
 
-    /// The ring at the hub, from the moment the slot flips into it. Nil before.
+    /// The ring on the hub's glass, from the moment the leaf is taken in. Nil before.
     static func carryRing(_ e: BloomEvents, now: TimeInterval) -> Look? {
         guard let drop = e.drop else { return nil }
         let t = now - drop.at
@@ -603,17 +656,15 @@ extension Motion {
             return Look(opacity: phase(t, fade / 2, fade))
         }
         guard t >= Drop.ringAt else { return nil }
-        return Look(scale: pop(t - Drop.ringAt, duration: Drop.ringPop, peak: Hover.peak))
+        return Look(scale: pop(t - Drop.ringAt, duration: Drop.ringPop, peak: Drop.ringPopPeak))
     }
 
-    /// Something folding into the hub in a drop (after the wave) or a cancel: it shrinks
-    /// about the disc's centre, so it moves in, and blurs away.
+    /// Something folding into the hub on an animated cancel: it shrinks about the disc's
+    /// centre, so it moves in, and blurs away.
     static func foldLook(_ e: BloomEvents, now: TimeInterval, since: TimeInterval, towards center: CGPoint,
                          duration: TimeInterval? = nil, scaleAboutCentre: Bool = true) -> Look {
-        let isDrop = e.drop != nil
         if e.reduce { return Look(opacity: 1 - phase(now, since, fade)) }
-        let start = isDrop ? since + Drop.foldAt : since
-        let raw = phase(now, start, duration ?? Drop.fold)
+        let raw = phase(now, since, duration ?? Drop.fold)
         let p = exit(raw)
         let s = lerp(1, Drop.foldTo, p)
         let offset = scaleAboutCentre ? CGSize(width: center.x * (s - 1), height: center.y * (s - 1)) : .zero
