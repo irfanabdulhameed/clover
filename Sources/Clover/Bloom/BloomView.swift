@@ -40,6 +40,7 @@ struct BloomScene: View {
         let count = model.leafCount
         let center = CGPoint(x: side / 2, y: side / 2)
         let carried = e.drop?.slot
+        let wave = Motion.wave(e, now: now)
         ZStack {
             if !snapshot {
                 // Nearly invisible, so the window takes drags and clicks across the clover.
@@ -52,14 +53,45 @@ struct BloomScene: View {
                 }
                 .frame(width: side, height: side)
             }
+            if let wave, wave.lift > 0 {
+                // The disc lifts a little as the wave crosses it.
+                Circle()
+                    .fill(Color.white.opacity(wave.lift))
+                    .blendMode(.plusLighter)
+                    .frame(width: G.discRadius * 2, height: G.discRadius * 2)
+                    .position(center)
+            }
+            if let carried, carried < count, let glow = Motion.dropGlow(e, now: now) {
+                DropGlow(index: carried, count: count)
+                    .scaleEffect(glow.scale)
+                    .opacity(glow.opacity)
+                    .position(carriedPosition(carried, count: count, center: center, e))
+            }
             if let lit = e.lit, lit < count, let glow = Motion.glow(e, now: now) {
                 SlotGlow(index: lit, count: count, color: BloomStyle.cloverGlow(scheme))
                     .scaleEffect(glow.scale)
                     .opacity(glow.opacity)
                     .position(offset(BloomLayout.leafCenter(lit, of: count), center))
             }
-            ForEach(Array(model.leaves.enumerated()), id: \.offset) { index, leaf in
-                if index != carried { slot(index, leaf, count: count, center: center, e) }
+            if let wave, let carried, carried < count {
+                // Where the band passes, what's under it bends outward like liquid under
+                // glass: the layer with the band cut out, and a copy pushed outward and
+                // brightened, seen only through the band.
+                let origin = offset(BloomLayout.leafCenter(carried, of: count), center)
+                let anchor = UnitPoint(x: origin.x / side, y: origin.y / side)
+                bendable(e, count: count, center: center, carried: carried)
+                    .mask(WaveMask(origin: origin, wave: wave, part: .outside, side: side))
+                bendable(e, count: count, center: center, carried: carried)
+                    .brightness(Motion.Drop.waveBrighten * 0.5 * wave.strength)
+                    .scaleEffect(wave.bendScale(0.5), anchor: anchor)
+                    .mask(WaveMask(origin: origin, wave: wave, part: .sides, side: side))
+                bendable(e, count: count, center: center, carried: carried)
+                    .brightness(Motion.Drop.waveBrighten * wave.strength)
+                    .scaleEffect(wave.bendScale(1), anchor: anchor)
+                    .mask(WaveMask(origin: origin, wave: wave, part: .middle, side: side))
+                WaveLight(origin: origin, wave: wave, side: side)
+            } else {
+                bendable(e, count: count, center: center, carried: carried)
             }
             ForEach(Array(e.ripples.enumerated()), id: \.offset) { _, ripple in
                 if ripple.slot < count, let r = Motion.ripple(ripple, e, now: now) {
@@ -71,14 +103,6 @@ struct BloomScene: View {
                         .blur(radius: 0.4)
                         .position(offset(BloomLayout.leafCenter(ripple.slot, of: count), center))
                 }
-            }
-            HubView(pictures: model.pictures, count: model.files.count, hasFiles: model.hasFiles)
-                .look(Motion.hub(e, now: now))
-                .position(center)
-            if !model.hint.isEmpty {
-                CapsuleLabel(text: model.hint)
-                    .look(Motion.capsule(e, now: now))
-                    .position(x: center.x, y: center.y + G.capsuleCenterY)
             }
             if let carried, carried < model.leaves.count {
                 slot(carried, model.leaves[carried], count: count, center: center, e)
@@ -99,6 +123,31 @@ struct BloomScene: View {
     }
 
     // MARK: Parts
+
+    /// The slots that aren't carried, the centre circle and its capsule: what the wave bends.
+    private func bendable(_ e: BloomEvents, count: Int, center: CGPoint, carried: Int?) -> some View {
+        ZStack {
+            ForEach(Array(model.leaves.enumerated()), id: \.offset) { index, leaf in
+                if index != carried { slot(index, leaf, count: count, center: center, e) }
+            }
+            HubView(pictures: model.pictures, count: model.files.count, hasFiles: model.hasFiles)
+                .look(Motion.hub(e, now: now))
+                .position(center)
+            if !model.hint.isEmpty {
+                CapsuleLabel(text: model.hint)
+                    .look(Motion.capsule(e, now: now))
+                    .position(x: center.x, y: center.y + G.capsuleCenterY)
+            }
+        }
+        .frame(width: side, height: side)
+    }
+
+    /// Where the carried slot is drawn now, in the scene.
+    private func carriedPosition(_ index: Int, count: Int, center: CGPoint, _ e: BloomEvents) -> CGPoint {
+        let middle = BloomLayout.leafCenter(index, of: count)
+        let look = Motion.slot(index, count: count, center: middle, e, now: now).look
+        return CGPoint(x: center.x + middle.x + look.offset.width, y: center.y + middle.y + look.offset.height)
+    }
 
     private func disc(_ e: BloomEvents) -> some View {
         let r = G.discRadius
@@ -500,6 +549,115 @@ struct LightRing: View {
             Circle().stroke(Color.white.opacity(0.9), lineWidth: width)
         }
         .frame(width: radius * 2, height: radius * 2)
+    }
+}
+
+// MARK: - The wave
+
+/// One part of the wave's band around its origin, as a mask: everything outside the band,
+/// the band's two sides, or its middle. The three add up to the whole, with soft edges,
+/// so each point shows the layer, or a copy bent by half, or a copy bent fully. It costs a
+/// gradient, not a blur.
+struct WaveMask: View {
+    enum Part { case outside, sides, middle }
+
+    let origin: CGPoint
+    let wave: Wave
+    let part: Part
+    let side: CGFloat
+
+    var body: some View {
+        let r = wave.radius, half = wave.band / 2
+        let end = r + half + 1
+        // The band's profile from its inner edge to its outer edge.
+        let profile: [(CGFloat, Double)] = {
+            switch part {
+            case .outside: return [(r - half, 1), (r - half / 2, 0.25), (r, 0), (r + half / 2, 0.25), (r + half, 1)]
+            case .sides: return [(r - half, 0), (r - half / 2, 0.75), (r, 0), (r + half / 2, 0.75), (r + half, 0)]
+            case .middle: return [(r - half, 0), (r - half / 2, 0), (r, 1), (r + half / 2, 0), (r + half, 0)]
+            }
+        }()
+        let rest: Double = part == .outside ? 1 : 0
+        var stops: [Gradient.Stop] = [Gradient.Stop(color: Color.black.opacity(rest), location: 0)]
+        for (distance, alpha) in profile where distance > 0 {
+            stops.append(Gradient.Stop(color: Color.black.opacity(alpha), location: distance / end))
+        }
+        stops.append(Gradient.Stop(color: Color.black.opacity(rest), location: 1))
+        return Rectangle()
+            .fill(RadialGradient(stops: stops, center: UnitPoint(x: origin.x / side, y: origin.y / side),
+                                 startRadius: 0, endRadius: end))
+            .frame(width: side, height: side)
+    }
+}
+
+/// The wave's light: a soft white glow trailing the leading edge, and a thin iridescent
+/// stroke on the edge, both fading as the wave travels and kept to the disc and just past
+/// its rim.
+struct WaveLight: View {
+    let origin: CGPoint
+    let wave: Wave
+    let side: CGFloat
+
+    private static let iridescence: [Color] = [
+        Color(red: 0.35, green: 0.90, blue: 1.00), Color(red: 0.30, green: 0.50, blue: 1.00),
+        Color(red: 0.62, green: 0.40, blue: 1.00), Color(red: 1.00, green: 0.45, blue: 0.75),
+        Color(red: 1.00, green: 0.78, blue: 0.35), Color(red: 0.35, green: 0.90, blue: 1.00),
+    ]
+
+    var body: some View {
+        let d = Motion.Drop.self
+        let r = wave.radius, half = wave.band / 2, k = wave.strength
+        let lead = r + half - 2
+        let end = r + half + 1
+        let unit = UnitPoint(x: origin.x / side, y: origin.y / side)
+        let trail: [Gradient.Stop] = [
+            Gradient.Stop(color: Color.white.opacity(0), location: max(r - wave.band * d.waveTrail, 0) / end),
+            Gradient.Stop(color: Color.white.opacity(d.waveLight * k), location: max(lead - 2, 0) / end),
+            Gradient.Stop(color: Color.white.opacity(0), location: 1),
+        ]
+        let rim = BloomGeometry.discRadius + d.wavePastRim
+        ZStack {
+            Rectangle()
+                .fill(RadialGradient(stops: trail, center: unit, startRadius: 0, endRadius: end))
+                .blendMode(.plusLighter)
+            Circle()
+                .stroke(AngularGradient(colors: WaveLight.iridescence, center: .center, angle: .degrees(Double(r) * 0.4)),
+                        lineWidth: d.waveEdgeWidth)
+                .frame(width: lead * 2, height: lead * 2)
+                .position(origin)
+                .opacity(d.waveEdge * k)
+        }
+        .frame(width: side, height: side)
+        // On the disc and just past the rim, then gone.
+        .mask(
+            Rectangle().fill(RadialGradient(stops: [
+                Gradient.Stop(color: .black, location: 0),
+                Gradient.Stop(color: .black, location: (rim - 10) / (rim + 4)),
+                Gradient.Stop(color: .clear, location: 1),
+            ], center: .center, startRadius: 0, endRadius: rim + 4))
+        )
+        .allowsHitTesting(false)
+    }
+}
+
+/// The bright soft glow that blooms behind the chosen slot: a white core with a clover-green edge.
+struct DropGlow: View {
+    let index: Int
+    let count: Int
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let bounds = BloomLayout.leafBounds(index, of: count)
+        let shape = Path(SlotView.localPath(index, count))
+        ZStack {
+            shape.fill(BloomStyle.cloverGlow(scheme).opacity(0.75))
+                .scaleEffect(1.2)
+                .blur(radius: 16)
+            shape.fill(Color.white.opacity(0.9))
+                .blur(radius: 9)
+        }
+        .frame(width: bounds.width, height: bounds.height)
     }
 }
 
