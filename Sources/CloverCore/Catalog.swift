@@ -51,7 +51,8 @@ public final class Catalog: @unchecked Sendable {
         "mp4", "mov", "webm", "mkv",
         "mp3", "m4a", "wav", "flac", "aiff", "ogg", "opus",
         "docx", "rtf", "html", "txt",
-        "zip", "tgz", "folder",
+        // Extract only appears for archives, where it's the thing most people want.
+        "folder", "zip", "tgz",
     ]
 
     public func targets(for urls: [URL]) -> [Target] {
