@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import CloverCore
 
-/// Draws pictures of Home and Settings to PNG files, for checking the layout without
-/// clicking the menu bar. Run with `Clover --render-home <folder>` or `--render-settings <folder>`.
+/// Draws pictures of Home to PNG files, for checking the layout without clicking the menu bar.
+/// Run with `Clover --render-home <folder>`. The Dashboard has its own, in `DashboardRender`.
 @MainActor
 enum HomeRender {
     // MARK: Home
@@ -45,38 +45,6 @@ enum HomeRender {
         }
     }
 
-    // MARK: Settings
-
-    static func renderSettings(model: AppModel, into folder: URL) async {
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        // The Engines tab with nothing installed, which can't be made to happen on a Mac that has both.
-        let missing = [EngineInfo(name: "ffmpeg", path: nil, install: "brew install ffmpeg"),
-                       EngineInfo(name: "cwebp", path: nil, install: "brew install webp")]
-        for scheme in [ColorScheme.light, .dark] {
-            let view = EnginesSettingsView(engines: missing, refresh: {}).frame(width: 480, height: 310)
-            let file = folder.appendingPathComponent("settings-engines-missing-\(scheme == .dark ? "dark" : "light").png")
-            try? await capture(view, scheme: scheme)?.write(to: file)
-            print(file.path)
-        }
-
-        let controller = SettingsWindowController(model: model)
-        let window = controller.window
-        for scheme in [ColorScheme.light, .dark] {
-            window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-            for (index, name) in ["general", "engines", "about"].enumerated() {
-                controller.select(tab: index)
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                // The window's frame view includes the title bar, toolbar tabs and window background.
-                guard let view = window.contentView?.superview ?? window.contentView else { continue }
-                view.layoutSubtreeIfNeeded()
-                let png = bitmap(of: view)
-                let file = folder.appendingPathComponent("settings-\(name)-\(scheme == .dark ? "dark" : "light").png")
-                try? png?.write(to: file)
-                print(file.path)
-            }
-        }
-    }
-
     // MARK: Drawing
 
     private static func capture<V: View>(_ content: V, scheme: ColorScheme) async -> Data? {
@@ -93,7 +61,7 @@ enum HomeRender {
         return bitmap(of: host)
     }
 
-    private static func bitmap(of view: NSView) -> Data? {
+    static func bitmap(of view: NSView) -> Data? {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: rep)
         return rep.representation(using: .png, properties: [:])
@@ -102,7 +70,7 @@ enum HomeRender {
     // MARK: Sample data
 
     /// A few real files, so thumbnails and icons are the real thing. Made in a temp folder.
-    private static func makeSamples() -> (directory: URL, items: [RecentItem]) {
+    static func makeSamples() -> (directory: URL, items: [RecentItem]) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("clover-render-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 

@@ -13,7 +13,7 @@ extension TriggerKey {
     }
 }
 
-/// One command-line engine, for the lists in Home and Settings.
+/// One command-line engine, for the lists in Home and the Dashboard.
 struct EngineInfo: Identifiable, Equatable {
     let name: String
     let path: URL?

@@ -10,13 +10,13 @@ struct HomeActions {
     var remove: (RecentItem) -> Void
     var clearAll: () -> Void
     var refreshTools: () -> Void
-    var openSettings: () -> Void
+    var openDashboard: () -> Void
     var quit: () -> Void
 
     /// Does nothing. For previews and renders.
     static let none = HomeActions(
         chooseFiles: {}, filesDropped: { _ in }, reveal: { _ in }, open: { _ in }, remove: { _ in },
-        clearAll: {}, refreshTools: {}, openSettings: {}, quit: {})
+        clearAll: {}, refreshTools: {}, openDashboard: {}, quit: {})
 }
 
 /// The popover's content, wired to the live model.
@@ -72,8 +72,8 @@ struct HomeView: View {
 
     private var footer: some View {
         HStack(spacing: 0) {
-            HoverButton(shortcut: KeyboardShortcut(",", modifiers: .command), action: actions.openSettings) {
-                Text("Settings…")
+            HoverButton(shortcut: KeyboardShortcut(",", modifiers: .command), action: actions.openDashboard) {
+                Text("Dashboard")
                     .font(.system(size: 12))
                     .padding(.horizontal, 8)
                     .frame(height: 26)
