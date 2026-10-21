@@ -135,7 +135,7 @@ final class Settings: ObservableObject {
         holdToOpen = defaults.object(forKey: "holdToOpen") as? Bool ?? true
         hotkey = defaults.object(forKey: "hotkey") == nil ? .standard : Settings.load(Hotkey.self, "hotkey")
         revealAfterConverting = defaults.bool(forKey: "revealAfterConverting")
-        leafStyle = LeafStyle(rawValue: defaults.string(forKey: "leafStyle") ?? "") ?? .clover
+        leafStyle = LeafStyle(rawValue: defaults.string(forKey: "leafStyle") ?? "") ?? .clear
         motion = MotionPreference(rawValue: defaults.string(forKey: "motion") ?? "") ?? .system
         haptics = defaults.object(forKey: "haptics") as? Bool ?? true
         completionSound = defaults.object(forKey: "completionSound") as? Bool ?? true

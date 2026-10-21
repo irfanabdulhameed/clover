@@ -14,12 +14,9 @@ struct ChipGlassContainer<Content: View>: View {
 
     var body: some View {
         #if canImport(FoundationModels)
-        if #available(macOS 26, *), !snapshot {
-            // Closer than this and two chips run together; the stack's 8 pt gap keeps them apart.
-            GlassEffectContainer(spacing: 6) { content() }
-        } else {
-            content()
-        }
+        // No glass container: it drew the merged glass over the chips' contents, which
+        // came out blurred. Each chip's glass is applied to its own content instead.
+        content()
         #else
         content()
         #endif
@@ -58,6 +55,29 @@ struct ChipGlassBackground: View {
 
     private var frosted: some View {
         Glass(cornerRadius: cornerRadius, tint: clover ? BloomStyle.green(scheme).opacity(0.10) : nil, bright: true)
+    }
+}
+
+/// Puts the chip's glass behind its content: on macOS 26 applied to the content itself, so
+/// the picture and words always draw on top of the glass.
+struct ChipGlassModifier: ViewModifier {
+    var cornerRadius: CGFloat
+    var clover: Bool
+    @Environment(\.bloomSnapshot) private var snapshot
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *), !snapshot {
+            let regular = SwiftUI.Glass.regular
+            content.glassEffect(clover ? regular.tint(BloomStyle.green(scheme).opacity(0.28)) : regular,
+                                in: RoundedRectangle(cornerRadius: cornerRadius, style: .circular))
+        } else {
+            content.background(ChipGlassBackground(cornerRadius: cornerRadius, clover: clover))
+        }
+        #else
+        content.background(ChipGlassBackground(cornerRadius: cornerRadius, clover: clover))
+        #endif
     }
 }
 

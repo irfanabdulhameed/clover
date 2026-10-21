@@ -445,7 +445,6 @@ struct ChipView: View {
 
     var body: some View {
         ZStack {
-            LiquidGlass(cornerRadius: BloomGeometry.chipHeight / 2)
             if isLit { Capsule().fill(isFlash ? AnyShapeStyle(Color.white) : AnyShapeStyle(BloomStyle.cloverFill)) }
             HStack(spacing: 4) {
                 if isDefault {
@@ -458,6 +457,10 @@ struct ChipView: View {
                     .fixedSize()
             }
             .blur(radius: look.blur)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .glassBehind(cornerRadius: BloomGeometry.chipHeight / 2)
+        .overlay {
             if isFocused {
                 Capsule().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3)
             }
@@ -535,8 +538,8 @@ struct TrayScene: View {
         let tray = Motion.tray(e, now: now)
         LiquidGlassGroup(spacing: 4) {
             ZStack(alignment: .topLeading) {
-                LiquidGlass(cornerRadius: TrayLayout.cornerRadius, tint: model.tinted ? BloomStyle.discTint(scheme) : nil, bright: true)
-                    .frame(width: size.width, height: size.height)
+                ZStack(alignment: .topLeading) {
+                Color.clear
                 ForEach(Array(model.arrangement.more.enumerated()), id: \.offset) { index, target in
                     if frames.indices.contains(index) {
                         let lit = e.litPill == index
@@ -552,6 +555,10 @@ struct TrayScene: View {
                             .offset(x: frames[index].minX, y: frames[index].minY)
                     }
                 }
+                }
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
+                .glassBehind(cornerRadius: TrayLayout.cornerRadius,
+                             tint: model.tinted ? BloomStyle.discTint(scheme) : nil, bright: true)
                 if let open = e.pillChips, let target = model.pillTarget(open) {
                     let chips = model.pillChipFrames(for: open)
                     ForEach(Array(zip(target.options.indices, chips)), id: \.0) { index, frame in

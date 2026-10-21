@@ -227,7 +227,7 @@ struct ResultChipView: View {
                 .frame(width: ResultChipView.size.width, height: ResultChipView.size.height, alignment: .leading)
                 .frame(width: v.width, height: ResultChipView.size.height, alignment: .leading)
                 .clipShape(shape)
-                .background(ChipGlassBackground(cornerRadius: corner, clover: clover))
+                .modifier(ChipGlassModifier(cornerRadius: corner, clover: clover))
                 .background {
                     if !snapshot { ChipHoverTracker(onChange: actions.hover) }
                 }

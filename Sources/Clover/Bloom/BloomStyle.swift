@@ -281,7 +281,48 @@ struct LiquidGlass: View {
     }
 }
 
-/// Groups the clover's glass so neighbouring pieces merge and morph like liquid, on macOS 26.
+/// Puts the clover's glass behind a view. On macOS 26 the glass is applied to the view
+/// itself, so its content always draws on top of its own glass. (A separate glass view
+/// next to the content, inside a glass container, drew over the text: chips came out as
+/// empty pills.) Before macOS 26 and in still pictures it is the frosted `LiquidGlass`.
+struct GlassBehind: ViewModifier {
+    var cornerRadius: CGFloat
+    var tint: Color? = nil
+    var bright = false
+
+    @Environment(\.bloomSnapshot) private var snapshot
+
+    func body(content: Content) -> some View {
+        if snapshot || GlassMode.current == .classic {
+            content.background(LiquidGlass(cornerRadius: cornerRadius, tint: tint, bright: bright))
+        } else {
+            native(content)
+        }
+    }
+
+    @ViewBuilder private func native(_ content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 7.0)
+        if #available(macOS 26, *) {
+            content.glassEffect(SwiftUI.Glass.regular.tint(tint),
+                                in: RoundedRectangle(cornerRadius: cornerRadius, style: .circular))
+        } else {
+            content.background(LiquidGlass(cornerRadius: cornerRadius, tint: tint, bright: bright))
+        }
+        #else
+        content.background(LiquidGlass(cornerRadius: cornerRadius, tint: tint, bright: bright))
+        #endif
+    }
+}
+
+extension View {
+    func glassBehind(cornerRadius: CGFloat, tint: Color? = nil, bright: Bool = false) -> some View {
+        modifier(GlassBehind(cornerRadius: cornerRadius, tint: tint, bright: bright))
+    }
+}
+
+/// Holds the clover's glass. It used to be a glass container, so neighbouring pieces could
+/// merge like liquid; the container drew its merged glass over the chips' text, so it is
+/// off until the motion pass, where the merge belongs.
 struct LiquidGlassGroup<Content: View>: View {
     var spacing: CGFloat
     @ViewBuilder var content: () -> Content
@@ -290,11 +331,7 @@ struct LiquidGlassGroup<Content: View>: View {
 
     var body: some View {
         #if canImport(SwiftUI, _version: 7.0)
-        if #available(macOS 26, *), !snapshot, GlassMode.current != .classic {
-            GlassEffectContainer(spacing: spacing) { content() }
-        } else {
-            content()
-        }
+        content()
         #else
         content()
         #endif
