@@ -206,9 +206,23 @@ final class ChipPanel: NSPanel {
         animationBehavior = .none
     }
 
+    /// Set by a click on the chip. Without it AppKit would hand the chip key status
+    /// when another Clover window closes.
+    private var clicked = false
+
     // Key only after a click, never on its own.
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { clicked }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown { clicked = true }
+        super.sendEvent(event)
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        clicked = false
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
