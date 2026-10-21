@@ -26,6 +26,9 @@ final class BloomController: BloomInteractionDelegate {
     private var drag = DragState.idle
     private var ticker: Timer?
     private var pendingHide: DispatchWorkItem?
+    /// Takes the windows away once the drop's carry or the cancel has played.
+    private var pendingFinish: DispatchWorkItem?
+    private var pendingTrayHide: DispatchWorkItem?
     /// Set while the clover is on screen.
     private var shownMode: BloomModel.Mode?
     /// The clover's centre on screen.
@@ -57,8 +60,22 @@ final class BloomController: BloomInteractionDelegate {
         // Leaf outlines and label boxes are measured once, now, not on the first drag.
         DispatchQueue.main.async {
             for count in 1...BloomGeometry.maxLeaves {
-                for index in 0..<count { _ = BloomLayout.labelBox(index, of: count) }
+                for index in 0..<count {
+                    _ = BloomLayout.labelBox(index, of: count)
+                    _ = BloomLayout.labelBox(index, of: count, icon: true)
+                    _ = SlotView.localPath(index, count)
+                }
             }
+            // One still frame drawn offscreen warms text, symbol and blur caches, so the
+            // first real open doesn't pay for them.
+            let still = BloomModel.still(arrangement: Arrangement(leaves: [], more: []), picture: nil, lit: nil)
+            let warm = ImageRenderer(content: ZStack {
+                BloomScene(model: still, now: 0)
+                SlotLabel(title: "JPG", symbol: "ellipsis", hue: .orange, lit: true, width: 80)
+                CapsuleLabel(text: "2.2 MB")
+                ChipView(title: "Balanced", isDefault: true, isLit: false, isFocused: false, hue: .orange)
+            }.environment(\.bloomSnapshot, true))
+            _ = warm.cgImage
         }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp], handler: { [weak self] event in
             MainActor.assumeIsolated { self?.handleGlobal(event) }
@@ -95,7 +112,7 @@ final class BloomController: BloomInteractionDelegate {
     private func handleGlobal(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
-            if shownMode == .click { hide() }
+            if shownMode == .click { dismiss() }
             drag = .pressed(NSPasteboard(name: .drag).changeCount)
             startHold()
         case .leftMouseDragged:
@@ -110,7 +127,7 @@ final class BloomController: BloomInteractionDelegate {
     /// A press in one of Clover's own windows: its drags never open the clover.
     private func handleLocalDown(_ event: NSEvent) {
         if drag != .files { drag = .other }
-        if shownMode == .click, event.window !== panel, event.window !== trayPanel { hide() }
+        if shownMode == .click, event.window !== panel, event.window !== trayPanel { dismiss() }
     }
 
     private func dragged() {
@@ -154,13 +171,13 @@ final class BloomController: BloomInteractionDelegate {
         }
         guard wasFiles, shownMode == .drag else { return }
         if isOverClover(NSEvent.mouseLocation) {
-            // A drop on a leaf or a pill arrives by itself; one anywhere else never does.
-            let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.hide() } }
+            // A drop on a slot or a pill arrives by itself; one anywhere else never does.
+            let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.dismiss() } }
             pendingHide?.cancel()
             pendingHide = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
         } else {
-            hide()
+            dismiss()
         }
     }
 
@@ -264,7 +281,7 @@ final class BloomController: BloomInteractionDelegate {
 
     private func hotkeyPressed() {
         if shownMode != nil {
-            hide()
+            dismiss()
             return
         }
         guard FinderSelection.finderIsFrontmost, let files = finderSelection(), !files.isEmpty else {
@@ -309,7 +326,7 @@ final class BloomController: BloomInteractionDelegate {
         panel.contentView = container
         panel.initialFirstResponder = interaction
         panel.onResignKey = { [weak self] in
-            if self?.shownMode == .click { self?.hide() }
+            if self?.shownMode == .click { self?.dismiss() }
         }
         self.panel = panel
 
@@ -328,11 +345,22 @@ final class BloomController: BloomInteractionDelegate {
         tray.contentView = trayContainer
         trayPanel = tray
         bloom.onTrayChange = { [weak self] open in self?.trayChanged(open) }
+        bloom.onLight = { [weak self] in self?.tick(.alignment) }
+    }
+
+    /// A trackpad tick, when haptics are on.
+    private func tick(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
+        guard model.settings.haptics else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
     }
 
     private func show(at anchor: NSPoint, on screen: NSScreen, mode: BloomModel.Mode) {
         guard let panel else { return }
         pendingHide?.cancel()
+        // A clover still folding away goes at once.
+        if pendingFinish != nil { finishHide(keepModel: true) }
+        bloom.reduceMotion = model.settings.reduceMotion
+        bloom.tinted = model.settings.leafStyle == .clover
         let c = BloomLayout.clampedCenter(anchor, bounds: BloomController.extent, visible: screen.visibleFrame)
         center = c
         let side = BloomGeometry.panelSize
@@ -340,6 +368,7 @@ final class BloomController: BloomInteractionDelegate {
         panel.allowsKey = mode == .click
         shownMode = mode
         openedByHold = false
+        bloom.open()
         if mode == .click {
             panel.makeKeyAndOrderFront(nil)
             panel.makeFirstResponder(panel.initialFirstResponder)
@@ -348,32 +377,63 @@ final class BloomController: BloomInteractionDelegate {
         }
     }
 
-    /// Shows the More tray beside the More leaf, kept on screen, or hides it.
+    /// Shows the More tray beside the More slot, kept on screen, or lets it fold away.
     private func trayChanged(_ open: Bool) {
         guard let trayPanel else { return }
+        pendingTrayHide?.cancel()
+        pendingTrayHide = nil
         guard open, shownMode != nil, let more = bloom.moreIndex else {
-            trayPanel.orderOut(nil)
+            guard trayPanel.isVisible, shownMode != nil else {
+                trayPanel.orderOut(nil)
+                return
+            }
+            // It shrinks back towards More first.
+            let work = DispatchWorkItem { [weak trayPanel] in trayPanel?.orderOut(nil) }
+            pendingTrayHide = work
+            let close = model.settings.reduceMotion ? Motion.fade : Motion.Tray.close
+            DispatchQueue.main.asyncAfter(deadline: .now() + close, execute: work)
             return
         }
         let screen = BloomController.screen(containing: center)
-        let leaf = BloomLayout.screenRect(BloomLayout.leafBounds(more, of: bloom.leafCount), center: center)
-        let rect = TrayLayout.frame(size: bloom.traySize, more: leaf, clover: center, visible: screen.visibleFrame)
+        let sector = BloomLayout.screenRect(BloomLayout.sectorBounds(more, of: bloom.leafCount), center: center)
+        let rect = TrayLayout.frame(size: bloom.traySize, more: sector, clover: center, visible: screen.visibleFrame)
+        bloom.trayAnchor = TrayLayout.anchor(tray: rect, more: sector)
         let m = TrayLayout.windowMargin
         trayPanel.setFrame(rect.insetBy(dx: -m, dy: -m), display: true)
         trayPanel.orderFrontRegardless()
     }
 
-    private func hide() {
+    /// Folds the clover into its hub and then hides it: Esc, a release or a click outside.
+    private func dismiss() {
         pendingHide?.cancel()
         pendingHide = nil
         openedByHold = false
         guard shownMode != nil else { return }
         shownMode = nil
         panel?.allowsKey = false
+        bloom.cancel()
+        finish(after: bloom.reduceMotion ? Motion.fade : Motion.Cancel.duration)
+    }
+
+    /// Hides the windows once `delay` has passed.
+    private func finish(after delay: TimeInterval) {
+        pendingFinish?.cancel()
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.finishHide(keepModel: false) } }
+        pendingFinish = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// Takes the windows away now. `keepModel` leaves the model for a clover opening at once.
+    private func finishHide(keepModel: Bool) {
+        pendingFinish?.cancel()
+        pendingFinish = nil
+        pendingTrayHide?.cancel()
+        pendingTrayHide = nil
         panel?.orderOut(nil)
         trayPanel?.orderOut(nil)
-        bloom.reset(mode: .drag)
+        if !keepModel { bloom.reset(mode: .drag) }
     }
+
 
     // MARK: BloomInteractionDelegate
 
@@ -383,15 +443,23 @@ final class BloomController: BloomInteractionDelegate {
 
     func bloomChose(_ target: Target, option: Option?) {
         let files = bloom.files
-        guard !files.isEmpty else { return }
+        guard !files.isEmpty, shownMode != nil else { return }
+        pendingHide?.cancel()
+        pendingHide = nil
+        // The chosen slot flashes and glides to the hub, where it becomes the progress
+        // ring; the result chip takes the ring over at `BloomAnchor` when the panel hides.
+        bloom.drop()
+        tick(.generic)
+        shownMode = nil
+        openedByHold = false
+        panel?.allowsKey = false
         BloomAnchor.set(center)
         model.convert(files, to: target, option: option)
-        // Leave the drop callback before the windows go.
-        DispatchQueue.main.async { [weak self] in self?.hide() }
+        finish(after: Motion.Drop.handoff)
     }
 
     func bloomDismissed() {
-        hide()
+        dismiss()
     }
 
     // MARK: Geometry
@@ -421,7 +489,9 @@ final class BloomController: BloomInteractionDelegate {
 }
 
 /// Where the clover was when a conversion started from it, so the result chip can
-/// appear in the same place.
+/// appear in the same place: the hub's centre on screen. The clover's carry ends there
+/// `Motion.Drop.handoff` (380 ms) after the drop, as a `Motion.Drop.carrySide` clover-green
+/// disc with a `Motion.Drop.ringSide` ring on it; the chip starts as that ring.
 @MainActor
 enum BloomAnchor {
     private static var last: (point: NSPoint, time: Date)?

@@ -3,40 +3,71 @@ import Foundation
 
 /// Fixed sizes of the clover, in points.
 enum BloomGeometry {
-    static let hubSize: CGFloat = 72
-    /// Each leaf's point sits this far from the centre, just under the hub.
-    static let leafTip: CGFloat = 32
-    /// The leaf's scale: the heart is 0.92 of this wide and 0.92 long. With the tip
-    /// distance above, six leaves nearly touch.
-    static let leafSize: CGFloat = 104
-    /// Most leaves the clover shows. With more targets, the last one is "More".
+    /// The glass disc: 380 pt across, with room
+    /// for air around every slot.
+    static let discRadius: CGFloat = 190
+    /// The rim, a thin ring of clear glass inside the disc's edge.
+    static let rimWidth: CGFloat = 10
+    /// Between two neighbouring slots, so plenty of the disc's glass shows between them.
+    static let slotGap: CGFloat = 14
+    /// Between a slot and the centre circle, and between a slot and the rim.
+    static let slotInset: CGFloat = 10
+    /// The centre circle, with the files' picture: a third of the disc.
+    static let hubSize: CGFloat = 120
+    /// Where slots start and how far their lobes reach, from the centre.
+    static var slotInner: CGFloat { hubSize / 2 + slotInset }
+    static var slotOuter: CGFloat { discRadius - rimWidth - slotInset }
+    /// Most slots the clover shows. With more targets, the last one is "More".
     static let maxLeaves = 6
-    /// The label block in a leaf: an icon over a title.
+    /// A slot's base is this half-wide at the centre circle and widens at `baseSlope`
+    /// until it meets the gaps, so it reads as a leaflet's narrow base.
+    static let baseHalfWidth: CGFloat = 24
+    static let baseSlope: CGFloat = 1.7
+    /// Rounding of the base's corners, and of the notch.
+    static let baseRounding: CGFloat = 12
+    static let notchRounding: CGFloat = 3
+    /// How round a lobe's shoulder is, as a share of the lobe's half-width, and its cap as
+    /// a share of the slot's depth (wide slots would otherwise turn into beans).
+    static let shoulder: CGFloat = 0.9
+    static let shoulderCap: CGFloat = 0.55
+    /// The notch between the lobes: a share of the slot's depth, or of its half-width for
+    /// wide slots, whichever is deeper.
+    static let notchOfDepth: CGFloat = 0.14
+    static let notchOfWidth: CGFloat = 0.11
+    /// The label block in a slot: a title alone, or a tool's small icon over its title.
+    static let titleHeight: CGFloat = 18
     static let labelHeight: CGFloat = 34
-    /// The label fits in this width in every leaf, so a long title shrinks the same way everywhere.
-    static let labelMaxWidth: CGFloat = 76
+    /// The tool's icon, and the space under it.
+    static let labelIcon = CGSize(width: 14, height: 12)
+    static let labelIconGap: CGFloat = 2
+    /// Clear space kept between a label and its slot's outline, on every side.
+    static let labelClearance: CGFloat = 8
+    /// The label fits in this width in every slot, so a long title shrinks the same way everywhere.
+    static let labelMaxWidth: CGFloat = 84
+    /// The ideal distance of a label's middle from the centre: 72 % of the disc's radius.
+    static var labelRadius: CGFloat { (0.72 * discRadius).rounded() }
     static let chipHeight: CGFloat = 24
     /// Space between two chips.
     static let chipGap: CGFloat = 6
-    /// Space between a leaf's outer edge and its chips.
-    static let chipClearance: CGFloat = 10
+    /// Space between the disc's edge and its chips.
+    static let chipClearance: CGFloat = 8
     /// Text inset inside a chip, each side.
     static let chipPadding: CGFloat = 10
     /// The default chip's dot and the space after it.
     static let chipDotWidth: CGFloat = 9
     static let chipMinWidth: CGFloat = 44
-    /// The hint label sits on the lower edge of the hub.
-    static let hintCenterY: CGFloat = 36
-    static let hintHeight: CGFloat = 20
-    static let hintMaxWidth: CGFloat = 118
-    /// Room kept around a lit leaf for its glow.
-    static let glowMargin: CGFloat = 14
+    /// The picture in the centre circle, with the size capsule on top of it.
+    static let pictureSide: CGFloat = 56
+    static let pictureCenterY: CGFloat = 10
+    static let capsuleCenterY: CGFloat = -31
+    static let capsuleHeight: CGFloat = 20
+    static let capsuleMaxWidth: CGFloat = 84
     /// Room kept around a chip for its shadow.
     static let shadowMargin: CGFloat = 6
-    /// A point this close to a leaf's edge, outside it, still counts as on the leaf.
+    /// A point this close outside the disc still counts as on it.
     static let leafHitSlop: CGFloat = 3
     /// The panel is a square of this side, centred on the clover.
-    static let panelSize: CGFloat = 500
+    static let panelSize: CGFloat = 600
 }
 
 /// Where a pointer is over the clover.
@@ -54,48 +85,149 @@ enum BloomHit: Equatable {
     }
 }
 
-/// The heart-shaped leaf of Clover's icon: the same curves as `CloverGlyph` draws for
-/// the menu bar and the app icon. The point is at the origin and the leaf points along
-/// +y; it is 0.92 wide and 0.92 long.
-enum HeartLeaf {
-    typealias Curve = (CGPoint, CGPoint, CGPoint, CGPoint)
+/// The clover-leaf slot: a wedge of the disc whose narrow base sits at the centre circle,
+/// whose sides run along the gaps, and whose outer edge is two round lobes with a shallow
+/// notch. Built for slot 0 at 12 o'clock, with the origin at the disc's centre and y down.
+@MainActor
+enum SlotShape {
+    typealias G = BloomGeometry
 
-    static let curves: [Curve] = [
-        (CGPoint(x: 0, y: 0), CGPoint(x: -0.1, y: 0.12), CGPoint(x: -0.46, y: 0.34), CGPoint(x: -0.46, y: 0.6)),
-        (CGPoint(x: -0.46, y: 0.6), CGPoint(x: -0.46, y: 1.0), CGPoint(x: -0.06, y: 1.04), CGPoint(x: 0, y: 0.66)),
-        (CGPoint(x: 0, y: 0.66), CGPoint(x: 0.06, y: 1.04), CGPoint(x: 0.46, y: 1.0), CGPoint(x: 0.46, y: 0.6)),
-        (CGPoint(x: 0.46, y: 0.6), CGPoint(x: 0.46, y: 0.34), CGPoint(x: 0.1, y: 0.12), CGPoint(x: 0, y: 0)),
-    ]
+    private static var paths: [Int: CGPath] = [:]
 
-    /// The leaf as a path in its unit box.
-    static let path: CGPath = {
-        let p = CGMutablePath()
-        p.move(to: curves[0].0)
-        for c in curves { p.addCurve(to: c.3, control1: c.1, control2: c.2) }
-        p.closeSubpath()
-        return p
-    }()
+    /// Slots are drawn at least as narrow as three to a disc, so one or two still look like leaves.
+    static func shapeCount(_ count: Int) -> Int { max(count, 3) }
 
-    /// The outline as points, `steps` per curve.
-    static func polygon(steps: Int) -> [CGPoint] {
-        curves.flatMap { c in
-            (0..<steps).map { i -> CGPoint in
-                let t = CGFloat(i) / CGFloat(steps)
-                let u = 1 - t
-                let a = u * u * u, b = 3 * u * u * t, d = 3 * u * t * t, e = t * t * t
-                return CGPoint(x: a * c.0.x + b * c.1.x + d * c.2.x + e * c.3.x,
-                               y: a * c.0.y + b * c.1.y + d * c.2.y + e * c.3.y)
-            }
-        }
+    /// Half the slot's angle at radius `r`: the wedge less the gap, narrowed near the base.
+    static func sideAngle(_ r: CGFloat, count: Int) -> CGFloat {
+        let h = CGFloat.pi / CGFloat(shapeCount(count))
+        let wedge = r * (h - asin(min(1, (G.slotGap / 2) / r)))
+        let taper = G.baseHalfWidth + max(0, r - G.slotInner) * G.baseSlope
+        // A smooth minimum, so the taper flows into the side.
+        let k: CGFloat = 12
+        let width = 0.5 * (wedge + taper - sqrt((wedge - taper) * (wedge - taper) + k * k))
+        return width / r
     }
 
-    static let outline = polygon(steps: 32)
+    static func notchDepth(count: Int) -> CGFloat {
+        let depth = G.slotOuter - G.slotInner
+        let halfArc = sideAngle(G.slotOuter, count: count) * G.slotOuter
+        return max(G.notchOfDepth * depth, G.notchOfWidth * halfArc)
+    }
+
+    /// The slot's outline for a clover of `count` slots.
+    static func path(count: Int) -> CGPath {
+        let n = shapeCount(count)
+        if let cached = paths[n] { return cached }
+        let built = build(count: n)
+        paths[n] = built
+        return built
+    }
+
+    private static func build(count: Int) -> CGPath {
+        let inner = G.slotInner, outer = G.slotOuter
+        let depth = outer - inner
+        let d = notchDepth(count: count)
+        // The lobe tops sit halfway out each half; the shoulders round down into the sides.
+        let top: CGFloat = 0.5
+        let halfLobe = (1 - top) * sideAngle(outer, count: count) * outer
+        let shoulder = min(G.shoulder * halfLobe, G.shoulderCap * depth)
+        func profile(_ u: CGFloat) -> CGFloat {
+            let a = abs(u)
+            if a <= top {
+                // From the lobe's top down into the notch: a soft V.
+                return outer - d * pow((top - a) / top, 1.7)
+            }
+            let t = min((a - top) / (1 - top), 1)
+            return outer - shoulder * (1 - sqrt(max(0, 1 - t * t)))
+        }
+        func polar(_ r: CGFloat, _ phi: CGFloat) -> CGPoint { CGPoint(x: r * sin(phi), y: -r * cos(phi)) }
+        var points: [CGPoint] = []
+        let steps = 240
+        for i in 0...steps {
+            let u = -1 + 2 * CGFloat(i) / CGFloat(steps)
+            let r = profile(u)
+            points.append(polar(r, u * sideAngle(r, count: count)))
+        }
+        let side = profile(1)
+        let sideSteps = 48
+        for i in 1...sideSteps {
+            let r = side + (inner - side) * CGFloat(i) / CGFloat(sideSteps)
+            points.append(polar(r, sideAngle(r, count: count)))
+        }
+        let baseSteps = 24
+        for i in 1..<baseSteps {
+            points.append(polar(inner, sideAngle(inner, count: count) * (1 - 2 * CGFloat(i) / CGFloat(baseSteps))))
+        }
+        for i in 0..<sideSteps {
+            let r = inner + (side - inner) * CGFloat(i) / CGFloat(sideSteps)
+            points.append(polar(r, -sideAngle(r, count: count)))
+        }
+        let raw = CGMutablePath()
+        raw.addLines(between: points)
+        raw.closeSubpath()
+        // Round the base's corners (an opening), then soften the notch (a closing).
+        let opened = dilate(erode(raw, G.baseRounding), G.baseRounding)
+        return erode(dilate(opened, G.notchRounding), G.notchRounding)
+    }
+
+    private static func band(_ p: CGPath, _ r: CGFloat) -> CGPath {
+        p.copy(strokingWithWidth: 2 * r, lineCap: .round, lineJoin: .round, miterLimit: 1)
+    }
+
+    private static func erode(_ p: CGPath, _ r: CGFloat) -> CGPath { p.subtracting(band(p, r)) }
+    private static func dilate(_ p: CGPath, _ r: CGFloat) -> CGPath { p.union(band(p, r)) }
+
+    /// The path's largest closed outline as points, about `step` apart along curves.
+    static func flatten(_ path: CGPath, step: CGFloat = 1.5) -> [CGPoint] {
+        var outlines: [[CGPoint]] = []
+        var current: [CGPoint] = []
+        var last = CGPoint.zero
+        path.applyWithBlock { element in
+            let e = element.pointee
+            switch e.type {
+            case .moveToPoint:
+                if current.count > 2 { outlines.append(current) }
+                current = [e.points[0]]
+                last = e.points[0]
+            case .addLineToPoint:
+                current.append(e.points[0])
+                last = e.points[0]
+            case .addQuadCurveToPoint:
+                let c = e.points[0], p = e.points[1]
+                let n = max(2, Int((hypot(c.x - last.x, c.y - last.y) + hypot(p.x - c.x, p.y - c.y)) / step))
+                for i in 1...n {
+                    let t = CGFloat(i) / CGFloat(n), u = 1 - t
+                    current.append(CGPoint(x: u * u * last.x + 2 * u * t * c.x + t * t * p.x,
+                                           y: u * u * last.y + 2 * u * t * c.y + t * t * p.y))
+                }
+                last = p
+            case .addCurveToPoint:
+                let c1 = e.points[0], c2 = e.points[1], p = e.points[2]
+                let length = hypot(c1.x - last.x, c1.y - last.y) + hypot(c2.x - c1.x, c2.y - c1.y) + hypot(p.x - c2.x, p.y - c2.y)
+                let n = max(2, Int(length / step))
+                for i in 1...n {
+                    let t = CGFloat(i) / CGFloat(n), u = 1 - t
+                    let a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
+                    current.append(CGPoint(x: a * last.x + b * c1.x + c * c2.x + d * p.x,
+                                           y: a * last.y + b * c1.y + c * c2.y + d * p.y))
+                }
+                last = p
+            case .closeSubpath:
+                if current.count > 2 { outlines.append(current) }
+                current = []
+            @unknown default:
+                break
+            }
+        }
+        if current.count > 2 { outlines.append(current) }
+        return outlines.max { $0.count < $1.count } ?? []
+    }
 }
 
-/// Positions, leaf shapes, chip rows, hit-testing and screen-edge clamping. Pure math.
+/// Positions, slot shapes, chip rows, hit-testing and screen-edge clamping. Pure math.
 ///
-/// Clover coordinates have their origin at the hub's centre, with y pointing down.
-/// Leaves are numbered clockwise from 12 o'clock; `count` is how many there are.
+/// Clover coordinates have their origin at the disc's centre, with y pointing down.
+/// Slots are numbered clockwise from 12 o'clock; `count` is how many there are.
 @MainActor
 enum BloomLayout {
     typealias G = BloomGeometry
@@ -105,13 +237,13 @@ enum BloomLayout {
         CGFloat(index) * .pi * 2 / CGFloat(max(count, 1))
     }
 
-    /// Unit vector from the centre along a leaf.
+    /// Unit vector from the centre along a slot.
     static func radial(_ index: Int, of count: Int) -> CGVector {
         let a = angle(index, of: count)
         return CGVector(dx: clean(sin(a)), dy: clean(-cos(a)))
     }
 
-    /// Unit vector across a leaf, pointed so chips read top to bottom, or left to right
+    /// Unit vector across a slot, pointed so chips read top to bottom, or left to right
     /// in a level row.
     static func across(_ index: Int, of count: Int) -> CGVector {
         let a = angle(index, of: count)
@@ -120,30 +252,23 @@ enum BloomLayout {
         return t
     }
 
-    /// Maps the unit leaf onto a leaf of the clover: point at `leafTip`, along its angle.
-    static func leafTransform(_ index: Int, of count: Int) -> CGAffineTransform {
-        let r = radial(index, of: count)
-        let s = G.leafSize
-        // Unit x runs across the leaf, unit y along it.
-        return CGAffineTransform(a: -r.dy * s, b: r.dx * s, c: r.dx * s, d: r.dy * s,
-                                 tx: r.dx * G.leafTip, ty: r.dy * G.leafTip)
-    }
-
     private struct Key: Hashable {
         let index: Int
         let count: Int
+        var icon = false
     }
 
     private static var paths: [Key: CGPath] = [:]
     private static var outlines: [Key: [CGPoint]] = [:]
     private static var labels: [Key: CGRect] = [:]
 
-    /// The leaf's outline in clover coordinates.
+    /// The slot's outline in clover coordinates.
     static func leafPath(_ index: Int, of count: Int) -> CGPath {
         let key = Key(index: index, count: count)
         if let cached = paths[key] { return cached }
-        var t = leafTransform(index, of: count)
-        let path = HeartLeaf.path.copy(using: &t) ?? HeartLeaf.path
+        var t = CGAffineTransform(rotationAngle: angle(index, of: count))
+        let base = SlotShape.path(count: count)
+        let path = base.copy(using: &t) ?? base
         paths[key] = path
         return path
     }
@@ -152,8 +277,7 @@ enum BloomLayout {
     static func leafOutline(_ index: Int, of count: Int) -> [CGPoint] {
         let key = Key(index: index, count: count)
         if let cached = outlines[key] { return cached }
-        let t = leafTransform(index, of: count)
-        let points = HeartLeaf.outline.map { $0.applying(t) }
+        let points = SlotShape.flatten(leafPath(index, of: count))
         outlines[key] = points
         return points
     }
@@ -162,27 +286,55 @@ enum BloomLayout {
         leafPath(index, of: count).boundingBoxOfPath
     }
 
-    /// The farthest any leaf reaches from the centre.
-    static let leafReach: CGFloat = {
-        HeartLeaf.polygon(steps: 64).map { hypot($0.x * G.leafSize, G.leafTip + $0.y * G.leafSize) }.max() ?? 0
-    }()
+    /// The middle of a slot's bounding box, where it is drawn.
+    static func leafCenter(_ index: Int, of count: Int) -> CGPoint {
+        let b = leafBounds(index, of: count)
+        return CGPoint(x: b.midX, y: b.midY)
+    }
 
-    /// Where a leaf's label goes: an upright box in the broad part of the leaf, as wide
-    /// as its title row fits (at most `labelMaxWidth`), as near the middle of the broad
-    /// part as that allows. The icon sits in the box's upper half and needs less room;
-    /// the title fills the lower half. Both are centred on the box.
-    static func labelBox(_ index: Int, of count: Int) -> CGRect {
-        let key = Key(index: index, count: count)
+    /// The slot whose sector of the disc holds `point`.
+    static func sector(_ point: CGPoint, count: Int) -> Int {
+        guard count > 1 else { return 0 }
+        var a = atan2(point.x, -point.y)
+        if a < 0 { a += 2 * .pi }
+        let step = 2 * CGFloat.pi / CGFloat(count)
+        return Int(((a + step / 2) / step).rounded(.down)) % count
+    }
+
+    /// The bounding box of a slot's whole sector, out to the disc's edge.
+    static func sectorBounds(_ index: Int, of count: Int) -> CGRect {
+        let a = angle(index, of: count)
+        let half = CGFloat.pi / CGFloat(max(count, 1))
+        var points: [CGPoint] = []
+        for i in 0...24 {
+            let phi = a - half + 2 * half * CGFloat(i) / 24
+            points.append(CGPoint(x: G.discRadius * sin(phi), y: -G.discRadius * cos(phi)))
+            points.append(CGPoint(x: G.hubSize / 2 * sin(phi), y: -G.hubSize / 2 * cos(phi)))
+        }
+        let xs = points.map(\.x), ys = points.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+
+    /// Where a slot's label goes: an upright box in the broad part of the slot, as wide
+    /// as its title fits (at most `labelMaxWidth`) with `labelClearance` of clear space on
+    /// every side, as near `labelRadius` along the slot as that allows. With `icon`, a
+    /// tool's small icon sits over the title and needs less width.
+    static func labelBox(_ index: Int, of count: Int, icon: Bool = false) -> CGRect {
+        let key = Key(index: index, count: count, icon: icon)
         if let cached = labels[key] { return cached }
         let outline = leafOutline(index, of: count)
         let r = radial(index, of: count)
-        let half = G.labelHeight / 2
-        let iconRows = stride(from: -half, through: -1, by: 4).map { $0 }
-        let titleRows = stride(from: 2, through: half, by: 3).map { $0 }
-        let ideal = G.leafTip + 0.46 * G.leafSize
-        let middle = CGPoint(x: r.dx * ideal, y: r.dy * ideal)
-        // Room for the longest title at full size, with a little air.
-        let wanted = G.labelMaxWidth + 6
+        let height = icon ? G.labelHeight : G.titleHeight
+        let half = height / 2
+        // The rows the label covers, and its clear space above and below.
+        let clear = G.labelClearance
+        // The title's rows need the full width; a tool's icon rows above need only its own.
+        let titleTop = icon ? -half + G.labelIcon.height + G.labelIconGap : -half - clear
+        let iconRows = icon ? stride(from: -half - clear, through: titleTop - 1, by: 2).map { $0 } : []
+        let titleRows = stride(from: titleTop, through: half + clear, by: 2).map { $0 }
+        let middle = CGPoint(x: r.dx * G.labelRadius, y: r.dy * G.labelRadius)
+        let wanted = G.labelMaxWidth
+        let reach: CGFloat = 30
         /// The widest box centred on `x` that every row fits, or nil.
         func halfWidth(x: CGFloat, y: CGFloat, rows: [CGFloat]) -> CGFloat? {
             var room = CGFloat.infinity
@@ -194,16 +346,13 @@ enum BloomLayout {
         }
         var best: (center: CGPoint, width: CGFloat, score: CGFloat)?
         func consider(_ c: CGPoint) {
-            // Far from the middle of the broad part, a label reads as off to one side.
-            guard distance(c, middle) < 0.3 * G.leafSize,
-                  let icon = halfWidth(x: c.x, y: c.y, rows: iconRows), icon >= 12,
+            guard distance(c, middle) < reach,
+                  iconRows.isEmpty || (halfWidth(x: c.x, y: c.y, rows: iconRows) ?? 0) >= G.labelIcon.width / 2 + clear,
                   let title = halfWidth(x: c.x, y: c.y, rows: titleRows) else { return }
-            let width = title * 2
+            let width = (title - clear) * 2
             let score = min(width, wanted) * 4 - distance(c, middle)
             if best == nil || score > best!.score { best = (c, width, score) }
         }
-        // Coarse, then fine around the best.
-        let reach = 0.3 * G.leafSize
         for dy in stride(from: -reach, through: reach, by: 4) {
             for dx in stride(from: -reach, through: reach, by: 4) { consider(CGPoint(x: middle.x + dx, y: middle.y + dy)) }
         }
@@ -213,10 +362,36 @@ enum BloomLayout {
             }
         }
         let center = best?.center ?? middle
-        let width = min((best?.width ?? 0) - 6, G.labelMaxWidth).rounded(.down)
-        let box = CGRect(x: (center.x - width / 2).rounded(), y: (center.y - half).rounded(), width: width, height: G.labelHeight)
+        let width = min(best?.width ?? 0, G.labelMaxWidth).rounded(.down)
+        let box = CGRect(x: (center.x - width / 2).rounded(), y: (center.y - half).rounded(), width: width, height: height)
         labels[key] = box
         return box
+    }
+
+    /// The faint midrib from a slot's base to its notch, in pieces that leave its label clear.
+    static func midrib(_ index: Int, of count: Int, icon: Bool = false) -> [(CGPoint, CGPoint)] {
+        let r = radial(index, of: count)
+        let start = G.slotInner + 8
+        let end = G.slotOuter - SlotShape.notchDepth(count: count) - 7
+        let a = CGPoint(x: r.dx * start, y: r.dy * start), b = CGPoint(x: r.dx * end, y: r.dy * end)
+        let box = labelBox(index, of: count, icon: icon).insetBy(dx: -4, dy: -3)
+        // The stretch of the segment inside the box (Liang-Barsky), cut out.
+        var t0: CGFloat = 0, t1: CGFloat = 1
+        let dx = b.x - a.x, dy = b.y - a.y
+        for (p, q) in [(-dx, a.x - box.minX), (dx, box.maxX - a.x), (-dy, a.y - box.minY), (dy, box.maxY - a.y)] {
+            if p == 0 {
+                if q < 0 { return [(a, b)] }
+            } else {
+                let t = q / p
+                if p < 0 { t0 = max(t0, t) } else { t1 = min(t1, t) }
+            }
+        }
+        guard t0 < t1 else { return [(a, b)] }
+        func at(_ t: CGFloat) -> CGPoint { CGPoint(x: a.x + dx * t, y: a.y + dy * t) }
+        var pieces: [(CGPoint, CGPoint)] = []
+        if t0 > 0.04 { pieces.append((a, at(t0))) }
+        if t1 < 0.96 { pieces.append((at(t1), b)) }
+        return pieces
     }
 
     /// The stretch of row `y` inside a polygon that contains `x`, or nil when `x` is outside.
@@ -237,17 +412,17 @@ enum BloomLayout {
         return nil
     }
 
-    /// Chip frames for a leaf's options: one straight row just beyond the leaf's outer
-    /// edge, across its direction. A level row at 12 and 6, a column at 3 and 9 with its
+    /// Chip frames for a slot's options: one straight row just outside the disc beyond the
+    /// slot, across its direction. A level row at 12 and 6, a column at 3 and 9 with its
     /// inner edges at the same depth, and a tight staircase at other angles. Chips never
-    /// overlap each other or any leaf.
+    /// overlap each other or the disc.
     static func chipFrames(_ index: Int, of count: Int, widths: [CGFloat]) -> [CGRect] {
         guard !widths.isEmpty else { return [] }
         let r = radial(index, of: count)
         let t = across(index, of: count)
         let h = G.chipHeight
         let slanted = r.dx != 0 && r.dy != 0
-        let inner = leafReach + G.chipClearance
+        let inner = G.discRadius + G.chipClearance
         let halfDepths = widths.map { (abs(r.dx) * $0 + abs(r.dy) * h) / 2 }
         let sharedDepth = inner + (halfDepths.max() ?? 0)
         // Centre to centre: just enough to part two chips by the gap along x or along y,
@@ -261,12 +436,25 @@ enum BloomLayout {
         for i in widths.indices.dropFirst() { offsets.append(offsets[i - 1] + step(widths[i - 1], widths[i])) }
         let middle = (offsets[0] + offsets[offsets.count - 1]) / 2
         return widths.enumerated().map { i, w in
-            let depth = slanted ? sharedDepth : inner + halfDepths[i]
+            var depth = slanted ? sharedDepth : inner + halfDepths[i]
             let offset = offsets[i] - middle
-            let cx = (r.dx * depth + t.dx * offset).rounded()
-            let cy = (r.dy * depth + t.dy * offset).rounded()
+            // A chip far to the side of a level row would cut into the disc's curve: push it out.
+            var cx = r.dx * depth + t.dx * offset, cy = r.dy * depth + t.dy * offset
+            while nearest(CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)) < inner {
+                depth += 1
+                cx = r.dx * depth + t.dx * offset
+                cy = r.dy * depth + t.dy * offset
+            }
+            cx = cx.rounded()
+            cy = cy.rounded()
             return CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
         }
+    }
+
+    /// The distance from the centre to the nearest point of a rectangle.
+    static func nearest(_ rect: CGRect) -> CGFloat {
+        let x = min(max(0, rect.minX), rect.maxX), y = min(max(0, rect.minY), rect.maxY)
+        return hypot(x, y)
     }
 
     /// The width of a chip for a title of the given text width.
@@ -275,44 +463,37 @@ enum BloomLayout {
         return max(G.chipMinWidth, w.rounded(.up))
     }
 
-    /// What is under `point`. `open` is the leaf whose chips show, with their frames.
+    /// What is under `point`. `open` is the slot whose chips show, with their frames.
     ///
-    /// Order: the open leaf's chips, the hub (it sits over the leaves' points), any leaf by
-    /// its real outline, the band joining the open leaf to its chips (so moving onto a chip
-    /// never closes them), and last a leaf within `leafHitSlop` of the point.
+    /// Order: the open slot's chips, the centre circle, the slot whose sector of the disc
+    /// holds the point (gaps and rim included, so nothing flickers between slots), the
+    /// band joining the open slot to its chips (so moving onto a chip never closes them),
+    /// and nothing beyond.
     static func hit(_ point: CGPoint, count: Int, open: Int?, chips: [CGRect]) -> BloomHit {
         if let open {
             for (i, frame) in chips.enumerated() where frame.insetBy(dx: -3, dy: -3).contains(point) {
                 return .chip(leaf: open, index: i)
             }
         }
-        if distance(point, .zero) <= G.hubSize / 2 { return .hub }
-        for index in 0..<count where leafPath(index, of: count).contains(point) {
-            return .leaf(index)
-        }
+        let r = distance(point, .zero)
+        if r <= G.hubSize / 2 + G.slotInset / 2 { return .hub }
+        if count > 0, r <= G.discRadius + G.leafHitSlop { return .leaf(sector(point, count: count)) }
         if let open, open < count, inBand(point, leaf: open, of: count, chips: chips) {
             return .leaf(open)
         }
-        var nearest: (index: Int, distance: CGFloat)?
-        for index in 0..<count {
-            let d = distance(point, toOutline: leafOutline(index, of: count))
-            if d <= G.leafHitSlop, nearest == nil || d < nearest!.distance { nearest = (index, d) }
-        }
-        if let nearest { return .leaf(nearest.index) }
         return .none
     }
 
-    /// The area from the middle of a leaf out to the far edge of its chips, across the
-    /// leaf's width and the chips' full width.
+    /// The area from the disc's edge out to the far edge of a slot's chips, across the
+    /// chips' full width.
     static func inBand(_ point: CGPoint, leaf index: Int, of count: Int, chips: [CGRect]) -> Bool {
         guard !chips.isEmpty else { return false }
         let r = radial(index, of: count)
         let t = across(index, of: count)
         func project(_ p: CGPoint) -> (r: CGFloat, t: CGFloat) { (p.x * r.dx + p.y * r.dy, p.x * t.dx + p.y * t.dy) }
         var outer = -CGFloat.infinity
-        let halfWidth = 0.46 * G.leafSize
-        var low = -halfWidth
-        var high = halfWidth
+        var low: CGFloat = -40
+        var high: CGFloat = 40
         for frame in chips {
             for corner in [CGPoint(x: frame.minX, y: frame.minY), CGPoint(x: frame.maxX, y: frame.minY),
                            CGPoint(x: frame.minX, y: frame.maxY), CGPoint(x: frame.maxX, y: frame.maxY)] {
@@ -323,17 +504,14 @@ enum BloomLayout {
             }
         }
         let p = project(point)
-        let inner = G.leafTip + 0.45 * G.leafSize
-        return p.r >= inner && p.r <= outer + 4 && p.t >= low - 4 && p.t <= high + 4
+        return p.r >= G.discRadius - 4 && p.r <= outer + 4 && p.t >= low - 4 && p.t <= high + 4
     }
 
-    /// Everything a clover of `count` leaves can show, chips included, around the centre (y down).
+    /// Everything a clover of `count` slots can show, chips included, around the centre (y down).
     static func contentBounds(count: Int, chipWidths: [[CGFloat]]) -> CGRect {
-        var bounds = CGRect(x: -G.hubSize / 2, y: -G.hubSize / 2, width: G.hubSize, height: G.hubSize)
-        bounds = bounds.union(CGRect(x: -G.hintMaxWidth / 2, y: G.hintCenterY - G.hintHeight / 2,
-                                     width: G.hintMaxWidth, height: G.hintHeight))
+        let d = G.discRadius + G.shadowMargin
+        var bounds = CGRect(x: -d, y: -d, width: 2 * d, height: 2 * d)
         for index in 0..<count {
-            bounds = bounds.union(leafBounds(index, of: count).insetBy(dx: -G.glowMargin, dy: -G.glowMargin))
             for widths in chipWidths {
                 for frame in chipFrames(index, of: count, widths: widths) {
                     bounds = bounds.union(frame.insetBy(dx: -G.shadowMargin, dy: -G.shadowMargin))
@@ -517,6 +695,14 @@ enum TrayLayout {
         }
         if CGRect(origin: .zero, size: size).contains(point) { return .background }
         return .none
+    }
+
+    /// The point the tray grows out of, as a fraction of its frame from its top-left: the
+    /// spot on its edge nearest the More slot. Both rectangles on screen (y up).
+    static func anchor(tray: CGRect, more: CGRect) -> CGPoint {
+        let x = min(max(more.midX, tray.minX), tray.maxX)
+        let y = min(max(more.midY, tray.minY), tray.maxY)
+        return CGPoint(x: (x - tray.minX) / max(tray.width, 1), y: (tray.maxY - y) / max(tray.height, 1))
     }
 
     /// The tray's frame on screen (y up), `size` tall plus `overhang`. `more` is the More
