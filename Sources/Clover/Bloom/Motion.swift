@@ -58,8 +58,8 @@ enum Motion {
         /// The other slots dim and soften.
         static let dim: TimeInterval = 0.12
         static let undim: TimeInterval = 0.09
-        static let dimOpacity: Double = 0.75
-        static let dimBlur: CGFloat = 1.5
+        static let dimOpacity: Double = 0.85
+        static let dimBlur: CGFloat = 0.8
     }
 
     // MARK: Option chips
