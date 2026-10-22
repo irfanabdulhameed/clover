@@ -73,20 +73,27 @@ struct HomeView: View {
     private var footer: some View {
         HStack(spacing: 0) {
             HoverButton(shortcut: KeyboardShortcut(",", modifiers: .command), action: actions.openDashboard) {
-                Text("Dashboard")
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
+                footerLabel("Dashboard", symbol: "square.grid.2x2")
             }
             Spacer()
             HoverButton(shortcut: KeyboardShortcut("q", modifiers: .command), action: actions.quit) {
-                Text("Quit")
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
+                footerLabel("Quit", symbol: "power")
             }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
+    }
+
+    /// A footer button's icon and title.
+    private func footerLabel(_ title: String, symbol: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.system(size: 12))
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 26)
     }
 }
