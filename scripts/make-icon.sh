@@ -95,20 +95,18 @@ func drawIcon(size: Int) -> CGImage {
     // The clover: white, lit from above, with a soft green shadow.
     // A bigger mark at small sizes, so it still reads.
     let markSide: CGFloat = size <= 64 ? 700 : 612
-    let box = CGRect(x: 512 - markSide / 2, y: 512 - markSide / 2 + 6, width: markSide, height: markSide)
+    let box = CGRect(x: 512 - markSide / 2, y: 512 - markSide / 2, width: markSide, height: markSide)
     let leaves = CloverGlyph.leaves(in: box)
-    let stem = CloverGlyph.stem(in: box)
     let white = gradient([(0, color(0xFFFFFF)), (1, color(0xDDF7E6))])
 
     context.saveGState()
     context.setShadow(offset: CGSize(width: 0, height: -16 * k), blur: 26 * k, color: color(0x0B5A2C, 0.36))
     context.setFillColor(color(0xFFFFFF))
     context.addPath(leaves)
-    context.addPath(stem)
     context.fillPath()
     context.restoreGState()
 
-    for part in [leaves, stem] {
+    for part in [leaves] {
         context.saveGState()
         context.addPath(part)
         context.clip()
