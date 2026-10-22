@@ -3,7 +3,7 @@ import Foundation
 
 /// Every timing, size and curve of the result chip, in one place. Times are in seconds.
 ///
-/// The house rules (PLAN.md section 4): no bounce, a fast start and a long soft landing,
+/// The house rules: no bounce, a fast start and a long soft landing,
 /// blur as a material, state changes that flip in one frame with a small pop, exits
 /// faster than entrances.
 enum ChipMotion {
