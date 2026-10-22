@@ -18,13 +18,6 @@ enum FinderSelection {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID
     }
 
-    /// True when Clover may already script Finder. Checked without asking, so it never
-    /// puts up the permission prompt (used in the middle of a drag).
-    static var permitted: Bool {
-        let target = NSAppleEventDescriptor(bundleIdentifier: bundleID)
-        return AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, false) == noErr
-    }
-
     /// Finder's selection as aliases, turned into POSIX paths. An empty selection gives an
     /// empty list. The timeout keeps a busy Finder from holding Clover up for long.
     static let source = """

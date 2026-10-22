@@ -170,11 +170,11 @@ final class BloomController: BloomInteractionDelegate {
         guard NSEvent.modifierFlags.contains(model.settings.triggerKey.flag) else { return }
         let mouse = NSEvent.mouseLocation
         bloom.reset(mode: .drag)
-        // The labels must be there when the clover shows. From Finder, its selection is
-        // what is being dragged (asked only when already allowed, so no prompt mid-drag).
-        // From other apps the files arrive when the drag reaches the clover.
-        if FinderSelection.finderIsFrontmost, FinderSelection.permitted,
-           case .success(let files) = FinderSelection.read(), !files.isEmpty {
+        // The labels must be there when the clover shows, so the dragged files are read
+        // from the drag's own pasteboard now, which is instant. (Asking Finder for its
+        // selection here waited until the drag ended: Finder is busy running the drag.)
+        let files = BloomInteractionView.fileURLs(in: NSPasteboard(name: .drag))
+        if !files.isEmpty {
             bloom.setFiles(files, arrangement: model.arrangement(for: files))
         }
         show(at: mouse, on: BloomController.screen(containing: mouse), mode: .drag)
