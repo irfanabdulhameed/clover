@@ -18,12 +18,12 @@ enum CloverGlyph {
 
     private static let center = CGPoint(x: 0.5, y: 0.5)
 
-    /// The four leaves, as one path. `turn` rotates the whole clover, in degrees: the app
-    /// icon turns it 45° so the leaves point up, down, left and right.
-    static func leaves(in rect: CGRect, flipped: Bool = false, turn: Double = 0) -> CGPath {
+    /// The four leaves, as one path, pointing up, down, left and right: the same angle in
+    /// the app icon, the menu bar and the drop zone.
+    static func leaves(in rect: CGRect, flipped: Bool = false) -> CGPath {
         let p = CGMutablePath()
-        for degrees in [45.0, 135.0, 225.0, 315.0] {
-            let angle = (degrees + turn) * .pi / 180
+        for degrees in [0.0, 90.0, 180.0, 270.0] {
+            let angle = degrees * .pi / 180
             let gap = 0.06
             let tip = CGPoint(x: center.x + gap * cos(angle), y: center.y + gap * sin(angle))
             let t = CGAffineTransform(translationX: tip.x, y: tip.y)
