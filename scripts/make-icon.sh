@@ -96,7 +96,7 @@ func drawIcon(size: Int) -> CGImage {
     // A bigger mark at small sizes, so it still reads.
     let markSide: CGFloat = size <= 64 ? 700 : 612
     let box = CGRect(x: 512 - markSide / 2, y: 512 - markSide / 2, width: markSide, height: markSide)
-    let leaves = CloverGlyph.leaves(in: box)
+    let leaves = CloverGlyph.leaves(in: box, turn: 45)
     let white = gradient([(0, color(0xFFFFFF)), (1, color(0xDDF7E6))])
 
     context.saveGState()
