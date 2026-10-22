@@ -122,7 +122,7 @@ struct BloomScene: View {
         let r = G.discRadius
         let look = Motion.disc(e, now: now)
         return ZStack {
-            LiquidGlass(cornerRadius: r, tint: model.tinted ? BloomStyle.discTint(scheme) : nil, bright: true)
+            LiquidGlass(cornerRadius: r, tint: BloomStyle.glassTint(model.tint, scheme), bright: true)
             RimView()
         }
         .frame(width: r * 2, height: r * 2)
@@ -143,6 +143,7 @@ struct BloomScene: View {
         SlotView(index: index, count: count, title: title(of: leaf), symbol: symbol(of: leaf), hue: hue(of: index),
                  fill: fill, litAmount: amount, innerGlow: e.drop?.slot == index ? Motion.chosenGlow(e, now: now) : 0,
                  press: lights.press, spill: lights.spill,
+                 plus: leaf == .more ? Motion.moreTurn(e, now: now) : nil, plusFades: e.reduce,
                  focused: model.focusedLeaf == index && model.focusChip == nil && model.phase == .open)
             .look(state.look)
             .position(offset(middle, center))
@@ -210,15 +211,16 @@ struct BloomScene: View {
     private func title(of leaf: BloomModel.Leaf) -> String {
         switch leaf {
         case .target(let target): target.title
-        case .more: "More"
+        case .more: "More formats"
         }
     }
 
-    /// Tools and More carry a small icon; formats are a title alone.
+    /// Tools carry a small icon; formats are a title alone; More
+    /// is a + of its own.
     private func symbol(of leaf: BloomModel.Leaf) -> String? {
         switch leaf {
         case .target(let target): BloomStyle.isTool(target) ? BloomStyle.symbol(for: target) : nil
-        case .more: "ellipsis"
+        case .more: nil
         }
     }
 
@@ -282,6 +284,10 @@ struct SlotView: View {
     /// A press's light on this slot, and the spill of a press on a neighbour.
     var press: PressLight? = nil
     var spill: PressLight? = nil
+    /// More: a + instead of a label, turned this far (0 to 1) into ×; cross-faded instead
+    /// with `plusFades` (reduce motion).
+    var plus: Double? = nil
+    var plusFades = false
     let focused: Bool
 
     @Environment(\.colorScheme) private var scheme
@@ -314,7 +320,14 @@ struct SlotView: View {
             shape.stroke(rim(lit: lit, dark: dark), lineWidth: 0.75)
             if let press { PressLightView(shape: shape, light: press, size: bounds.size) }
             // No midrib line (Irfan, 22 Oct 2026). The label turns with its leaf.
-            if fill != .flash {
+            if let plus {
+                // A + looks the same every 90°: turned with the leaf it would sit at a slant
+                // (30° at 10 o'clock) and read as ×, so it keeps the leaf's nearest quarter turn.
+                PlusIcon(turn: plus, fades: plusFades, lit: lit)
+                    .rotationEffect(.radians((label.angle / (.pi / 2)).rounded() * (.pi / 2)))
+                    .position(x: label.center.x - bounds.minX, y: label.center.y - bounds.minY)
+                    .accessibilityLabel(title)
+            } else if fill != .flash {
                 SlotLabel(title: title, symbol: symbol, hue: hue, lit: lit, width: label.size.width)
                     .frame(width: label.size.width, height: label.size.height)
                     .rotationEffect(.radians(label.angle))
@@ -361,6 +374,33 @@ struct SlotGlow: View {
             .fill(color.opacity(0.55))
             .frame(width: bounds.width, height: bounds.height)
             .blur(radius: 12)
+    }
+}
+
+/// The More slot's +, turning 45° into × while its tray is open, or cross-fading into ×
+/// with reduce motion.
+struct PlusIcon: View {
+    /// 0 is +, 1 is ×.
+    let turn: Double
+    let fades: Bool
+    let lit: Bool
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let ink = lit ? BloomStyle.litInk(scheme) : Color.primary
+        let font = Font.system(size: Motion.More.iconSize, weight: .semibold)
+        ZStack {
+            if fades {
+                Image(systemName: "plus").font(font).opacity(1 - turn)
+                Image(systemName: "xmark").font(font).opacity(turn)
+            } else {
+                Image(systemName: "plus").font(font)
+                    .rotationEffect(.degrees(Motion.More.angle * turn))
+            }
+        }
+        .foregroundStyle(ink)
+        .shadow(color: .black.opacity(scheme == .dark ? 0.25 : 0), radius: 1, y: 0.5)
     }
 }
 
@@ -786,7 +826,7 @@ struct TrayScene: View {
                 }
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
                 .glassBehind(cornerRadius: TrayLayout.cornerRadius,
-                             tint: model.tinted ? BloomStyle.discTint(scheme) : nil, bright: true)
+                             tint: BloomStyle.glassTint(model.tint, scheme), bright: true)
                 if let open = e.pillChips, let target = model.pillTarget(open) {
                     let chips = model.pillChipFrames(for: open)
                     ForEach(Array(zip(target.options.indices, chips)), id: \.0) { index, frame in

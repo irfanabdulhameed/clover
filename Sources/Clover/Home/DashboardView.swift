@@ -88,7 +88,7 @@ struct DashboardData {
     var motion: Binding<MotionPreference>
     var haptics: Binding<Bool>
     var completionSound: Binding<Bool>
-    var leafStyle: Binding<LeafStyle>
+    var glassTint: Binding<GlassTint>
     var login: LoginState
     var items: [RecentItem]
     var engines: [EngineInfo]
@@ -128,7 +128,7 @@ struct DashboardRoot: View {
                 motion: $settings.motion,
                 haptics: $settings.haptics,
                 completionSound: $settings.completionSound,
-                leafStyle: $settings.leafStyle,
+                glassTint: $settings.glassTint,
                 login: LoginState(isEnabled: login.isEnabled, message: login.message,
                                   needsApproval: login.needsApproval, inApplications: login.isInApplications),
                 items: recents.items,
@@ -152,6 +152,8 @@ struct DashboardView: View {
             sidebar
         } detail: {
             detail
+                // The Leaves preview shows the clover in the chosen tint.
+                .environment(\.glassTint, data.glassTint.wrappedValue)
                 .navigationTitle(section.title)
                 .toolbar {
                     // A window around a hosted view doesn't get the sidebar button by itself.
@@ -194,7 +196,7 @@ struct DashboardView: View {
                              forceRecording: data.forced.recording, forceRejected: data.forced.rejected)
         case .feel:
             FeelSection(motion: data.motion, haptics: data.haptics, completionSound: data.completionSound,
-                        leafStyle: data.leafStyle)
+                        glassTint: data.glassTint)
         case .history:
             HistorySection(items: data.items, actions: actions, initialQuery: data.forced.query)
         case .engines:

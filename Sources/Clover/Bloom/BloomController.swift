@@ -36,6 +36,10 @@ final class BloomController: BloomInteractionDelegate {
     private var screenObserver: NSObjectProtocol?
     /// Opened by a hold in Finder: letting go without a drag turns it to click mode.
     private var openedByHold = false
+    /// Tells a new press of the trigger key, which closes the clover, from the one that opened it.
+    private var triggerToggle: TriggerToggle?
+    /// Closed by the trigger key during a drag: the key must come up before it opens again.
+    private var waitForKeyUp = false
     private var hold: HoldWatch?
     private var holdTimer: Timer?
     private let hotkey = BloomHotkey()
@@ -167,7 +171,12 @@ final class BloomController: BloomInteractionDelegate {
     /// The pointer may be still while the key goes down, so this also runs on a timer.
     private func checkTrigger() {
         guard drag == .files, shownMode == nil else { return }
-        guard NSEvent.modifierFlags.contains(model.settings.triggerKey.flag) else { return }
+        let down = NSEvent.modifierFlags.contains(model.settings.triggerKey.flag)
+        if waitForKeyUp {
+            if !down { waitForKeyUp = false }
+            return
+        }
+        guard down else { return }
         let mouse = NSEvent.mouseLocation
         bloom.reset(mode: .drag)
         // The labels must be there when the clover shows, so the dragged files are read
@@ -228,7 +237,23 @@ final class BloomController: BloomInteractionDelegate {
             released()
             return
         }
+        pollTrigger()
         checkTrigger()
+    }
+
+    /// While the clover is open in drag mode, a new press of the trigger key closes it.
+    private func pollTrigger() {
+        guard shownMode == .drag, var toggle = triggerToggle else { return }
+        let closes = toggle.poll(keyDown: NSEvent.modifierFlags.contains(model.settings.triggerKey.flag))
+        triggerToggle = toggle
+        if closes { closeByTrigger() }
+    }
+
+    /// Closes the clover as Esc does. A drag carries on, and the key must come up before
+    /// the clover can open again.
+    private func closeByTrigger() {
+        waitForKeyUp = true
+        dismiss()
     }
 
     // MARK: Hold and press
@@ -284,7 +309,12 @@ final class BloomController: BloomInteractionDelegate {
         bloom.setFiles(files, arrangement: model.arrangement(for: files))
         show(at: mouse, on: BloomController.screen(containing: mouse), mode: .drag)
         openedByHold = true
-        if !buttonDown { switchToClickMode() }
+        if buttonDown {
+            // Polls the trigger key, and notices the button coming up, while it is held.
+            startTicker()
+        } else {
+            switchToClickMode()
+        }
     }
 
     /// Opened by a hold and let go: the window takes keys and clicks pick a leaf.
@@ -382,7 +412,8 @@ final class BloomController: BloomInteractionDelegate {
         // A clover still folding away goes at once.
         if pendingFinish != nil { finishHide(keepModel: true) }
         bloom.reduceMotion = model.settings.reduceMotion
-        bloom.tinted = model.settings.leafStyle == .clover
+        triggerToggle = TriggerToggle(keyDown: NSEvent.modifierFlags.contains(model.settings.triggerKey.flag))
+        bloom.tint = model.settings.glassTint
         let c = BloomLayout.clampedCenter(anchor, bounds: BloomController.extent, visible: screen.visibleFrame)
         center = c
         let side = BloomGeometry.panelSize
@@ -512,6 +543,17 @@ final class BloomController: BloomInteractionDelegate {
         finish(after: Motion.Drop.handoff)
     }
 
+    func bloomModifiersChanged(_ flags: NSEvent.ModifierFlags) {
+        guard shownMode == .click, var toggle = triggerToggle else { return }
+        let closes = toggle.changed(keyDown: flags.contains(model.settings.triggerKey.flag))
+        triggerToggle = toggle
+        if closes { closeByTrigger() }
+    }
+
+    func bloomOtherKey() {
+        triggerToggle?.otherKey()
+    }
+
     func bloomDismissed() {
         dismiss()
     }
@@ -560,4 +602,47 @@ enum BloomAnchor {
         guard let last, Date().timeIntervalSince(last.time) < 2 else { return nil }
         return last.point
     }
+}
+
+/// Tells a new press of the trigger key from the press that opened the clover: a new press
+/// closes it, as Esc does. The key must have come up since the clover opened.
+///
+/// In drag mode the key is polled and a new press closes on the way down. In click mode
+/// the clover's window has the keys, so it closes on the way up of a clean tap: a press
+/// with another key in it (Shift-Tab, say) is not a tap.
+struct TriggerToggle: Equatable {
+    /// The key has come up since the clover opened, so its next press is a new one.
+    private(set) var armed: Bool
+    /// Click mode: a new press is down, with no other key pressed since.
+    private(set) var tapping = false
+
+    /// `keyDown`: whether the key is down as the clover opens; usually it is, having opened it.
+    init(keyDown: Bool) { armed = !keyDown }
+
+    /// Drag mode, polled. True when a new press goes down: close.
+    mutating func poll(keyDown: Bool) -> Bool {
+        guard keyDown else {
+            armed = true
+            tapping = false
+            return false
+        }
+        guard armed else { return false }
+        armed = false
+        return true
+    }
+
+    /// Click mode: the key went down or up. True when a new press comes up as a clean tap.
+    mutating func changed(keyDown: Bool) -> Bool {
+        if keyDown {
+            tapping = armed
+            armed = false
+            return false
+        }
+        armed = true
+        defer { tapping = false }
+        return tapping
+    }
+
+    /// Another key was pressed while the trigger key was down: not a tap.
+    mutating func otherKey() { tapping = false }
 }

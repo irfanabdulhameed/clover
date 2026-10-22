@@ -45,6 +45,10 @@ protocol BloomInteractionDelegate: AnyObject {
     func bloomReceivedFiles(_ files: [URL])
     func bloomChose(_ target: Target, option: Option?)
     func bloomDismissed()
+    /// Click mode: the modifier keys changed, or another key was pressed (for the trigger
+    /// key's new press, which closes the clover).
+    func bloomModifiersChanged(_ flags: NSEvent.ModifierFlags)
+    func bloomOtherKey()
 }
 
 /// A clear view over the drawn clover that takes the drag, the pointer and the keys,
@@ -168,7 +172,13 @@ final class BloomInteractionView: NSView {
 
     // MARK: Keys (click mode)
 
+    override func flagsChanged(with event: NSEvent) {
+        delegate?.bloomModifiersChanged(event.modifierFlags)
+        super.flagsChanged(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
+        delegate?.bloomOtherKey()
         guard model.phase == .open else { return }
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
