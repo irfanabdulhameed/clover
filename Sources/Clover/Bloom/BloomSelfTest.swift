@@ -771,42 +771,49 @@ enum BloomSelfTest {
         expect(lifts.max()! <= M.Drop.chooseLift + 0.0001, "with no overshoot")
         expect(M.chosenGlow(e, now: d0 + M.Drop.choose) > 0.99 && M.chosenGlow(e, now: d0 + M.Drop.glideStart + M.Drop.glowOut + 0.001) == 0,
                "a soft inner glow comes up with it and goes as it glides")
-        // One thin wave from the chosen leaf, over the disc only.
-        let reach = M.waveReach(origin)
-        expect(M.wave(e, now: d0 + 0.01, origin: origin) == nil && (M.wave(e, now: d0 + M.Drop.waveStart + 1e-6, origin: origin)?.radius ?? 1) < 0.1,
-               "the wave sets off at 20 ms from the leaf's middle")
-        let mid = M.wave(e, now: d0 + M.Drop.waveStart + M.Drop.wave * 0.467, origin: origin)!
-        expect(abs(mid.radius / reach - 0.75) < 0.03, "fast attack: 75 % of its way at 47 % of its time")
-        var radii: [CGFloat] = []
-        for i in 0..<100 { radii.append(M.wave(e, now: d0 + M.Drop.waveStart + 1e-6 + M.Drop.wave * Double(i) / 100, origin: origin)!.radius) }
-        expect(zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 } && radii.max()! <= reach, "the wave never overshoots or comes back")
-        expect(abs(reach - (hypot(origin.x, origin.y) + G.discRadius)) < 0.01, "it reaches the far side of the disc")
-        expect(M.wave(e, now: d0 + M.Drop.waveStart + M.Drop.wave + 0.001, origin: origin) == nil, "and is gone at 380 ms")
-        expect(M.Drop.waveCore <= 2.5 && M.Drop.waveGlow <= 14 && M.Drop.waveTrailLight <= 0.08, "a thin front, a faint light behind it")
-        expect(M.Drop.waveRimFade > 0, "it fades out before the rim and is clipped to the disc")
-        // Each leaf is nudged as the front reaches its middle, in order of distance.
+        // The leaves in order of distance from the chosen one.
         let order = (0..<6).filter { $0 != 1 }.sorted { L.distance(centers[$0], origin) < L.distance(centers[$1], origin) }
-        let arrivals = order.map { M.waveArrives(L.distance(centers[$0], origin), origin: origin) }
-        expect(zip(arrivals, arrivals.dropFirst()).allSatisfy { $0 <= $1 + 1e-9 }, "the nearer leaves are nudged first")
-        for i in order {
-            let distance = L.distance(centers[i], origin)
-            let arrive = M.waveArrives(distance, origin: origin)
-            let atFront = M.wave(e, now: d0 + arrive, origin: origin)?.radius ?? -1
-            expect(abs(atFront - distance) < 0.5, "leaf \(i) is nudged when the front reaches its middle")
-            // Its peak, before the fold can begin for the farthest leaves.
-            let peak = stride(from: arrive, through: arrive + M.Drop.nudge * 0.6, by: 0.002).map { slotLook(i, $0).look }
-            let away = peak.map { hypot($0.offset.width, $0.offset.height) }
-            expect(away.max()! > M.Drop.nudgeShift - 0.1 && away.max()! <= M.Drop.nudgeShift + 0.001 && peak.map(\.scale).max()! <= M.Drop.nudgeScale + 0.0001,
-                   "leaf \(i): out about 3.5 pt and to 103 %, no further")
-            let out = CGVector(dx: centers[i].x - origin.x, dy: centers[i].y - origin.y)
-            let best = peak.max { hypot($0.offset.width, $0.offset.height) < hypot($1.offset.width, $1.offset.height) }!
-            expect(best.offset.width * out.dx + best.offset.height * out.dy > 0, "leaf \(i): pushed away from the chosen leaf")
-            let back = slotLook(i, arrive + M.Drop.nudge + 0.001).look
-            expect(back.offset == .zero || back.opacity < 1, "leaf \(i): back in place after 180 ms")
+        if M.Drop.waveEnabled {
+            // One thin wave from the chosen leaf, over the disc only.
+            let reach = M.waveReach(origin)
+            expect(M.wave(e, now: d0 + 0.01, origin: origin) == nil && (M.wave(e, now: d0 + M.Drop.waveStart + 1e-6, origin: origin)?.radius ?? 1) < 0.1,
+                   "the wave sets off at 20 ms from the leaf's middle")
+            let mid = M.wave(e, now: d0 + M.Drop.waveStart + M.Drop.wave * 0.467, origin: origin)!
+            expect(abs(mid.radius / reach - 0.75) < 0.03, "fast attack: 75 % of its way at 47 % of its time")
+            var radii: [CGFloat] = []
+            for i in 0..<100 { radii.append(M.wave(e, now: d0 + M.Drop.waveStart + 1e-6 + M.Drop.wave * Double(i) / 100, origin: origin)!.radius) }
+            expect(zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 } && radii.max()! <= reach, "the wave never overshoots or comes back")
+            expect(abs(reach - (hypot(origin.x, origin.y) + G.discRadius)) < 0.01, "it reaches the far side of the disc")
+            expect(M.wave(e, now: d0 + M.Drop.waveStart + M.Drop.wave + 0.001, origin: origin) == nil, "and is gone at 380 ms")
+            expect(M.Drop.waveCore <= 2.5 && M.Drop.waveGlow <= 14 && M.Drop.waveTrailLight <= 0.08, "a thin front, a faint light behind it")
+            expect(M.Drop.waveRimFade > 0, "it fades out before the rim and is clipped to the disc")
+            // Each leaf is nudged as the front reaches its middle, in order of distance.
+            let arrivals = order.map { M.waveArrives(L.distance(centers[$0], origin), origin: origin) }
+            expect(zip(arrivals, arrivals.dropFirst()).allSatisfy { $0 <= $1 + 1e-9 }, "the nearer leaves are nudged first")
+            for i in order {
+                let distance = L.distance(centers[i], origin)
+                let arrive = M.waveArrives(distance, origin: origin)
+                let atFront = M.wave(e, now: d0 + arrive, origin: origin)?.radius ?? -1
+                expect(abs(atFront - distance) < 0.5, "leaf \(i) is nudged when the front reaches its middle")
+                // Its peak, before the fold can begin for the farthest leaves.
+                let peak = stride(from: arrive, through: arrive + M.Drop.nudge * 0.6, by: 0.002).map { slotLook(i, $0).look }
+                let away = peak.map { hypot($0.offset.width, $0.offset.height) }
+                expect(away.max()! > M.Drop.nudgeShift - 0.1 && away.max()! <= M.Drop.nudgeShift + 0.001 && peak.map(\.scale).max()! <= M.Drop.nudgeScale + 0.0001,
+                       "leaf \(i): out about 3.5 pt and to 103 %, no further")
+                let out = CGVector(dx: centers[i].x - origin.x, dy: centers[i].y - origin.y)
+                let best = peak.max { hypot($0.offset.width, $0.offset.height) < hypot($1.offset.width, $1.offset.height) }!
+                expect(best.offset.width * out.dx + best.offset.height * out.dy > 0, "leaf \(i): pushed away from the chosen leaf")
+                let back = slotLook(i, arrive + M.Drop.nudge + 0.001).look
+                expect(back.offset == .zero || back.opacity < 1, "leaf \(i): back in place after 180 ms")
+            }
+            let hubPeak = stride(from: 0.0, through: M.Drop.gatherAt, by: 0.002).map { M.hub(e, now: d0 + $0, origin: origin) }
+            let hubAway = hubPeak.map { hypot($0.offset.width, $0.offset.height) }.max()!
+            expect(hubAway > 1 && hubAway <= M.Drop.hubNudgeShift + 0.001, "the hub is nudged too, less")
+        } else {
+            expect(M.wave(e, now: d0 + M.Drop.waveStart + M.Drop.wave * 0.5, origin: origin) == nil
+                   && M.nudged(centers[order[0]], origin: origin, t: 0.1, shift: M.Drop.nudgeShift, scale: M.Drop.nudgeScale) == .still,
+                   "no ring of light and no nudges while the wave is off")
         }
-        let hubPeak = stride(from: 0.0, through: M.Drop.gatherAt, by: 0.002).map { M.hub(e, now: d0 + $0, origin: origin) }
-        let hubAway = hubPeak.map { hypot($0.offset.width, $0.offset.height) }.max()!
-        expect(hubAway > 1 && hubAway <= M.Drop.hubNudgeShift + 0.001, "the hub is nudged too, less")
         // Gather: the others fold one by one, the farthest last, all gone by the handoff.
         let gone = order.map { i in stride(from: M.Drop.gatherAt, through: M.Drop.handoff, by: 0.002).first { slotLook(i, $0).look.opacity == 0 } ?? 1 }
         expect(zip(gone, gone.dropFirst()).allSatisfy { $0 <= $1 + 1e-9 } && gone.last! <= M.Drop.handoff,

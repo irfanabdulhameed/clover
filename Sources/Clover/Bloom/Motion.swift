@@ -183,6 +183,9 @@ enum Motion {
         static let chooseLift: CGFloat = 1.07
         /// 20 to 380 ms: one thin wave of light from the chosen leaf's middle across the
         /// disc, fading as it nears the rim.
+        /// Off (Irfan, 22 Oct 2026: "remove the outer ripple"): no ring of light and no
+        /// nudges. The press, then the gather to the ring, carry the choice.
+        static let waveEnabled = false
         static let waveStart: TimeInterval = 0.02
         static let wave: TimeInterval = 0.36
         /// Its white core, the soft glow around it, and the faint light behind it.
@@ -716,7 +719,7 @@ extension Motion {
 
     /// The wave at a moment, or nil before and after it, and with reduce motion.
     static func wave(_ e: BloomEvents, now: TimeInterval, origin: CGPoint) -> Wave? {
-        guard let drop = e.drop, !e.reduce else { return nil }
+        guard Drop.waveEnabled, let drop = e.drop, !e.reduce else { return nil }
         let u = (now - drop.at - Drop.waveStart) / Drop.wave
         guard u >= 0, u < 1 else { return nil }
         return Wave(radius: waveReach(origin) * CGFloat(settle(u)), strength: 1 - exit(u))
@@ -741,6 +744,7 @@ extension Motion {
 
     /// Something at `center` nudged outward from `origin` as the wave passes it.
     static func nudged(_ center: CGPoint, origin: CGPoint, t: TimeInterval, shift: CGFloat, scale: CGFloat) -> Look {
+        guard Drop.waveEnabled else { return .still }
         let dx = center.x - origin.x, dy = center.y - origin.y
         let distance = hypot(dx, dy)
         guard distance > 1 else { return .still }
