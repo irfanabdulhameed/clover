@@ -7,13 +7,21 @@ import CloverCore
 ///
 ///   Clover --render-bloom <out.png> [--no-targets] [--frames | --bench] <file>...
 ///   Clover --render-hud <out.png> [<file>]
+///   Clover --render-demo <folder> [<file>]
 ///   Clover --bloom-selftest
 @MainActor
 enum BloomDebug {
+    static let commands = ["--render-bloom", "--render-hud", "--render-demo", "--bloom-selftest"]
+
+    /// True when Clover was started for one of these commands, so it shows nothing.
+    static func isCommand(_ arguments: [String]) -> Bool {
+        arguments.dropFirst().first.map(commands.contains) ?? false
+    }
+
     /// Returns true when a debug command was found and is running.
     static func run(_ arguments: [String], model: AppModel) -> Bool {
         let args = Array(arguments.dropFirst())
-        guard let command = args.first, ["--render-bloom", "--render-hud", "--bloom-selftest"].contains(command) else { return false }
+        guard let command = args.first, commands.contains(command) else { return false }
         Task { @MainActor in
             let code: Int32
             switch command {
@@ -21,6 +29,8 @@ enum BloomDebug {
                 code = await renderBloom(Array(args.dropFirst()), model: model)
             case "--render-hud":
                 code = await renderHUD(Array(args.dropFirst()))
+            case "--render-demo":
+                code = await DemoRender.render(Array(args.dropFirst()), model: model)
             case "--bloom-selftest":
                 code = await BloomSelfTest.run(model: model)
             default:
@@ -519,7 +529,7 @@ private struct Tile<Content: View>: View {
                 if plain {
                     Color(nsColor: .windowBackgroundColor)
                 } else {
-                    backdrop
+                    DeskBackdrop(dark: scheme == .dark, width: width, height: height)
                 }
                 content()
             }
@@ -529,10 +539,16 @@ private struct Tile<Content: View>: View {
         .frame(width: width)
         .environment(\.colorScheme, scheme)
     }
+}
 
-    private var backdrop: some View {
-        let dark = scheme == .dark
-        return ZStack(alignment: .topLeading) {
+/// A desktop with a window on it, behind the debug pictures and the demo.
+struct DeskBackdrop: View {
+    let dark: Bool
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
             LinearGradient(colors: dark ? [Color(red: 0.10, green: 0.12, blue: 0.20), Color(red: 0.22, green: 0.16, blue: 0.26)]
                                         : [Color(red: 0.66, green: 0.76, blue: 0.88), Color(red: 0.90, green: 0.82, blue: 0.76)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -549,6 +565,7 @@ private struct Tile<Content: View>: View {
             }
             .offset(x: width * 0.54, y: height * 0.14)
         }
+        .frame(width: width, height: height, alignment: .topLeading)
     }
 }
 

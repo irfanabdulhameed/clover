@@ -77,6 +77,11 @@ final class BloomModel: ObservableObject {
     }
     /// The motion clock, in seconds on `Date`'s reference clock.
     var clock: () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
+    /// Runs the rest delays' work after a delay, unless it is cancelled first. The demo
+    /// render runs them on its fake clock instead.
+    var after: (TimeInterval, DispatchWorkItem) -> Void = { delay, work in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
     /// Called when the tray opens or closes.
     var onTrayChange: ((Bool) -> Void)?
     /// Called when a slot lights, for the haptic tick.
@@ -929,6 +934,6 @@ final class BloomModel: ObservableObject {
         slot?.cancel()
         let work = DispatchWorkItem { MainActor.assumeIsolated { body() } }
         slot = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        after(delay, work)
     }
 }

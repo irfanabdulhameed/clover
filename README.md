@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/clover-wheel-dark.png" width="520" alt="The Clover wheel open over a Finder window in Dark mode, with leaves for JPG, HEIC, WebP, AVIF and TIFF, a plus leaf for more formats, and Best, Balanced and Small options above the JPG leaf">
+  <img src="docs/images/clover-demo.gif" width="560" alt="Clover in action: the clover opens at the pointer, a JPG leaf is pressed, and the result pill shows the converted photo">
 </p>
 
 Clover is a native **macOS file converter** that lives in your menu bar. Instead of opening a converter, choosing a file and picking settings, you drag the file you already have and drop it on the format you want. Convert **HEIC to JPG**, **PNG to WebP**, **MOV to MP4**, **video to GIF**, **WAV to MP3**, **PDF to JPG**, **DOCX to PDF** and dozens more, one file or a hundred at a time.
@@ -54,6 +54,10 @@ There are four ways to open it, so it fits however you work.
 | **Menu bar or Finder** | Drop files on the clover icon in the menu bar or its drop zone, or right-click files in Finder and choose **Services › Convert with Clover**. |
 
 Press the same key again, or <kbd>Esc</kbd>, to close the clover without converting.
+
+<p align="center">
+  <img src="docs/images/clover-wheel-dark.png" width="440" alt="The Clover wheel open over a Finder window in Dark mode, with leaves for JPG, HEIC, WebP, AVIF and TIFF, a plus leaf for more formats, and Best, Balanced and Small options above the JPG leaf">
+</p>
 
 ### Choose a format
 

@@ -34,6 +34,8 @@ final class HomeController: NSObject, NSPopoverDelegate {
             Task { await DashboardRender.render(into: URL(fileURLWithPath: folder)); exit(0) }
             return
         }
+        // The clover's debug commands draw and quit; no icon meanwhile.
+        if BloomDebug.isCommand(CommandLine.arguments) { return }
 
         popover.behavior = .transient
         popover.animates = false

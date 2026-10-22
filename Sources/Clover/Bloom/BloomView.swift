@@ -194,7 +194,9 @@ struct BloomScene: View {
             let rim = BloomLayout.radial(closing, of: count)
             ForEach(Array(zip(target.options.indices, frames)), id: \.0) { index, frame in
                 let toward = CGVector(dx: rim.dx * G.discRadius - frame.midX, dy: rim.dy * G.discRadius - frame.midY)
-                if let look = leaving ?? Motion.chipOut(towards: toward, e, now: now) {
+                // Only while they are still going: chips that have gone don't come back to fold in a drop.
+                if let out = Motion.chipOut(towards: toward, e, now: now) {
+                    let look = leaving ?? out
                     ChipView(title: target.options[index].title,
                              isDefault: target.options[index].id == target.defaultOption?.id,
                              isLit: false, isFlash: false, isFocused: false,
