@@ -592,6 +592,47 @@ enum BloomSelfTest {
             expect(!m.trayOpen, "no tray without More")
         }
 
+        // The press: the button goes down on a slot; the choice is made on release over it.
+        let pm = BloomModel()
+        pm.chipDelay = 0
+        pm.hoverDelay = 0.5
+        pm.reset(mode: .click)
+        pm.setFiles([png], arrangement: arrangement)
+        pm.open()
+        pm.pointer(at: label0)
+        pm.pressDown(.leaf(0), at: label0)
+        expect(pm.events.press?.target == .leaf(0) && pm.events.press?.point == label0 && pm.events.press?.releasedAt == nil,
+               "the press starts where the button went down")
+        expect(pm.litLeaf == 0, "a pressed slot lights at once, without the hover's rest")
+        expect(pm.pressUp(over: .leaf(0)) && pm.events.press?.chosen == true && pm.events.press?.releasedAt != nil,
+               "release over the same slot chooses")
+        pm.pressDown(.leaf(0), at: label0)
+        expect(!pm.pressUp(over: .leaf(1)) && pm.events.press?.chosen == false && pm.events.press?.releasedAt != nil,
+               "release over another slot springs back and chooses nothing")
+        expect(pm.phase == .open && pm.events.drop == nil, "and the clover stays open")
+        pm.pressDown(.leaf(0), at: label0)
+        expect(!pm.pressUp(over: nil), "release off the clover chooses nothing")
+        pm.pressDown(.leaf(0), at: label0)
+        pm.pressMoved(over: .leaf(1), at: .zero)
+        expect(pm.events.press?.releasedAt != nil, "dragged off its slot, the press lets go")
+        pm.pressMoved(over: .leaf(0), at: label0)
+        expect(pm.events.press?.releasedAt == nil, "back on, it presses again")
+        expect(pm.pressUp(over: .leaf(0)), "and a release there chooses")
+        pm.pressDown(.leaf(0), at: label0)
+        expect(pm.escape() && pm.events.press?.releasedAt != nil && pm.events.press?.chosen == false && pm.phase == .open,
+               "Esc lets go of the press only")
+        expect(!pm.pressUp(over: .leaf(0)), "a press that has let go doesn't choose on release")
+        pm.quickPress(.leaf(2), at: center(L.labelBox(2, of: 6)))
+        expect(pm.events.press?.quick == true && pm.events.press?.chosen == true
+               && pm.events.press?.endsAt == (pm.events.press?.at ?? 0) + Motion.Press.quickHold,
+               "a drop or Return is a quick press that lets go by itself")
+        expect(!pm.pressUp(over: .leaf(2)), "a quick press ignores the button")
+        expect(BloomModel.pressTarget(BloomHit.hub) == nil && BloomModel.pressTarget(BloomHit.chip(leaf: 0, index: 1)) == .chip(leaf: 0, index: 1)
+               && BloomModel.pressTarget(TrayHit.background) == nil && BloomModel.pressTarget(TrayHit.pill(2)) == .pill(2),
+               "slots, chips and pills press; the hub and the tray's background don't")
+        pm.focusNumber(2)
+        expect(pm.keyboardPress?.target == .leaf(1) && pm.keyboardPress?.point == L.leafCenter(1, of: 6), "Return presses from the slot's middle")
+
         // Many files, mixed files, nothing to do.
         let twelve = (1...12).map { URL(fileURLWithPath: "/nonexistent/IMG_\($0).png") }
         m.setFiles(twelve, arrangement: app.arrangement(for: twelve))
@@ -800,6 +841,51 @@ enum BloomSelfTest {
         expect(M.Drop.handoff == 0.55 && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 550 ms, no gap")
         expect(M.Drop.ringSide == ChipMotion.dropRingDiameter, "the same 56 pt ring")
         expect(M.busyUntil(e, count: 6) >= d0 + M.Drop.handoff, "the frame clock runs to the handoff")
+
+        // The press: a glass button.
+        let pressed = BloomEvents.Press(target: .leaf(0), point: CGPoint(x: centers[0].x + 14, y: centers[0].y - 10), at: 20)
+        let held = stride(from: 0.0, through: 0.8, by: 0.004).map { M.pressScale(pressed, peak: M.Press.leafPeak, reduce: false, now: 20 + $0) }
+        expect(held.first == 1 && held.max()! > M.Press.leafPeak && held.max()! < M.Press.leafPeak + 0.01
+               && abs(held.last! - M.Press.leafPeak) < 0.002, "held, the slot swells with a soft spring, a little give")
+        expect(abs(Double(M.Hover.lift * M.Press.leafPeak) - 1.09) < 0.015, "to about 1.09 from its hover size")
+        var let_go = pressed
+        let_go.releasedAt = 20.5
+        let after = stride(from: 0.0, through: 1.0, by: 0.004).map { M.pressScale(let_go, peak: M.Press.leafPeak, reduce: false, now: 20.5 + $0) }
+        expect(after.min()! > 0.97 && after.min()! < 0.995, "let go, it springs back past its size, about 0.98: \(after.min()!)")
+        let settled = stride(from: M.Press.releaseSettle, through: 1.0, by: 0.004).map {
+            M.pressScale(let_go, peak: M.Press.leafPeak, reduce: false, now: 20.5 + $0)
+        }
+        expect(settled.allSatisfy { abs($0 - 1) < 0.003 }, "and settles at 1 within \(Int(M.Press.releaseSettle * 1000)) ms")
+        expect(M.pressScale(pressed, peak: M.Press.leafPeak, reduce: false, now: 19.9) == 1, "nothing before the press")
+        // The light starts at the press point and grows to fill the slot.
+        let early = M.pressLight(pressed, reduce: false, now: 20.03)!, grown = M.pressLight(pressed, reduce: false, now: 20.3)!
+        expect(early.grow < 0.5 && early.intensity > 0.3 && grown.grow > 0.99, "the light comes up at once and fills the slot in 250 ms")
+        let size = L.leafBounds(0, of: 6).size
+        let local = CGPoint(x: pressed.point.x - L.leafBounds(0, of: 6).minX, y: pressed.point.y - L.leafBounds(0, of: 6).minY)
+        let small = PressLight.filling(size, from: local, early), big = PressLight.filling(size, from: local, grown)
+        expect(small.point == local && small.radius < big.radius && big.radius >= hypot(size.width, size.height) / 2,
+               "the light is centred on the press point and spreads from it")
+        expect(M.pressLight(let_go, reduce: false, now: 20.5 + M.Press.lightFade + 0.001) == nil
+               && M.pressLight(let_go, reduce: false, now: 20.6)!.intensity < M.pressLight(let_go, reduce: false, now: 20.5)!.intensity,
+               "let go, the light fades in 300 ms")
+        // A drop or Return: a quick press and release.
+        let quick = BloomEvents.Press(target: .leaf(0), point: centers[0], at: 30, quick: true, chosen: true)
+        expect(M.pressScale(quick, peak: M.Press.leafPeak, reduce: false, now: 30 + M.Press.quickHold) > 1.03
+               && abs(M.pressScale(quick, peak: M.Press.leafPeak, reduce: false, now: 30 + M.Press.quickHold + M.Press.releaseSettle) - 1) < 0.003,
+               "a quick press swells for 120 ms and springs back")
+        // Choosing after a press: the press's settle carries on; no second lift, no extra glow.
+        var chosenAfterPress = e
+        chosenAfterPress.press = BloomEvents.Press(target: .leaf(1), point: origin, at: d0 - 0.4, releasedAt: d0, chosen: true)
+        let handed = M.slot(1, count: 6, center: centers[1], chosenAfterPress, now: d0 + 0.05, origin: origin).look.scale
+        let expected = M.Hover.lift * M.pressScale(chosenAfterPress.press!, peak: M.Press.leafPeak, reduce: false, now: d0 + 0.05)
+        expect(abs(handed - expected) < 0.0001 && M.chosenGlow(chosenAfterPress, now: d0 + 0.05) == 0,
+               "the wave's choose step hands over from the press without doubling up")
+        // Reduce motion: no scale or spring; the light appears and fades.
+        expect(M.pressScale(pressed, peak: M.Press.leafPeak, reduce: true, now: 20.2) == 1, "reduce motion: no swell")
+        let soft = M.pressLight(pressed, reduce: true, now: 20 + M.fade / 2)!
+        expect(soft.grow == 1 && abs(soft.intensity - 0.5) < 0.01 && M.pressLight(let_go, reduce: true, now: 20.5 + M.fade + 0.001) == nil,
+               "reduce motion: the light fades in and out over 150 ms")
+        expect(M.busyUntil(BloomEvents(press: let_go), count: 6) >= 20.5 + M.Press.releaseSettle, "the frame clock runs through the settle")
 
         // Reduce motion: no wave and no fold, a fade, then the ring until the chip.
         var r = e

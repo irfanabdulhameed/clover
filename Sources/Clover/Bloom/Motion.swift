@@ -127,6 +127,50 @@ enum Motion {
         static let close: TimeInterval = 0.12
     }
 
+    // MARK: Press: the glass button
+
+    /// Pressing a leaf, chip or pill reacts like a macOS 26 glass button: it swells with a
+    /// soft spring and lights up from the press point; letting go springs back with a
+    /// slight jelly settle while the light fades. Irfan asked for the glass button's feel
+    /// here (22 Oct 2026), so the press, and only the press, may bounce a little.
+    enum Press {
+        /// The swell, on top of the hover's lift: a leaf reaches about 1.09 in all; a chip
+        /// or pill, which has no hover lift, 1.06.
+        static let leafPeak: CGFloat = 1.06
+        static let chipPeak: CGFloat = 1.06
+        /// The press spring: a little give, a small bounce.
+        static let damping: Double = 0.72
+        static let response: TimeInterval = 0.30
+        /// Letting go: a jelly settle, about 0.98, then 1, settled within `releaseSettle`.
+        static let releaseDamping: Double = 0.34
+        static let releaseResponse: TimeInterval = 0.26
+        static let releaseSettle: TimeInterval = 0.45
+        /// The light comes up at the press point and grows to fill the shape, then rests a
+        /// little lower while held; letting go, it fades.
+        static let lightRise: TimeInterval = 0.06
+        static let lightGrow: TimeInterval = 0.25
+        static let lightHeld: Double = 0.8
+        static let lightEase: TimeInterval = 0.5
+        static let lightFade: TimeInterval = 0.30
+        /// Its strength: added light in Dark; in Light, white over a touch of shade, so the
+        /// lit part stands out from the rest of the leaf.
+        static let lightDark: Double = 0.34
+        static let lightLight: Double = 0.95
+        static let shadeLight: Double = 0.12
+        /// How far the light's bright middle reaches before it thins out, as a share of its reach.
+        static let lightCore: CGFloat = 0.35
+        /// The soft glow along the inside of the edge, in Dark and in Light.
+        static let edgeDark: Double = 0.22
+        static let edgeLight: Double = 0.6
+        /// The specular rim, brightest along the top edge.
+        static let rim: Double = 0.95
+        /// The faint spill on the near edges of the neighbouring leaves.
+        static let spill: Double = 0.2
+        static let spillReach: CGFloat = 44
+        /// A drop or a key: a quick press, then the release, as the start of the wave.
+        static let quickHold: TimeInterval = 0.12
+    }
+
     // MARK: Drop: light through the glass
 
     /// Choosing a leaf, about 0.55 s: the leaf brightens and lifts, one thin wave of light
@@ -298,6 +342,32 @@ struct BloomEvents: Equatable {
     var litPillAt = -Double.infinity
     var drop: Drop?
     var cancelAt: TimeInterval?
+    /// The leaf, chip or pill being pressed, or last pressed.
+    var press: Press?
+
+    /// A press: what, where and when, and when it let go.
+    struct Press: Equatable {
+        enum Target: Equatable {
+            case leaf(Int)
+            case chip(leaf: Int, index: Int)
+            case pill(Int)
+            case pillChip(pill: Int, index: Int)
+        }
+
+        var target: Target
+        /// Where it was pressed: clover coordinates for leaves and chips, tray coordinates
+        /// for pills and their chips.
+        var point: CGPoint
+        var at: TimeInterval
+        var releasedAt: TimeInterval?
+        /// A drop or a key: it lets go by itself after `Motion.Press.quickHold`.
+        var quick = false
+        /// It let go over its own target: a choice.
+        var chosen = false
+
+        /// When it lets go, once that is known.
+        var endsAt: TimeInterval? { releasedAt ?? (quick ? at + Motion.Press.quickHold : nil) }
+    }
 }
 
 // MARK: - Looks
@@ -420,6 +490,7 @@ extension Motion {
         var look = unfold(i, center: center, e, now: now)
         let fill: SlotFill = e.lit == i ? .lit : .frosted
         if Hover.smooth, !e.reduce { look.scale *= lerp(1, Hover.lift, litAmount(i, e, now: now)) }
+        if let p = e.press, p.target == .leaf(i) { look.scale *= pressScale(p, peak: Press.leafPeak, reduce: e.reduce, now: now) }
         if e.lit == i {
             if Hover.popEnabled, !e.reduce { look.scale *= litScale(e, now: now) }
         } else {
@@ -580,6 +651,62 @@ extension Motion {
         return Look(scale: lerp(Tray.pillBornScale, 1, p), blur: lerp(Tray.pillBornBlur, 0, p), opacity: clamp(raw * 3))
     }
 
+    // MARK: Press
+
+    /// A damped spring from `from` to `to`, starting with `velocity`, `t` seconds in: its
+    /// value and velocity. `response` is the period of its swing; `damping` below 1 lets it
+    /// swing past its target a little.
+    static func spring(_ t: Double, from: Double, to: Double, velocity: Double,
+                       damping z: Double, response: Double) -> (value: Double, velocity: Double) {
+        guard t > 0 else { return (from, velocity) }
+        let w = 2 * Double.pi / response
+        let a = from - to
+        if z >= 1 {
+            let e = exp(-w * t), b = velocity + w * a
+            return (to + (a + b * t) * e, (b - w * (a + b * t)) * e)
+        }
+        let wd = w * sqrt(1 - z * z)
+        let b = (velocity + z * w * a) / wd
+        let e = exp(-z * w * t), c = cos(wd * t), s = sin(wd * t)
+        return (to + e * (a * c + b * s), e * ((b * wd - z * w * a) * c - (a * wd + z * w * b) * s))
+    }
+
+    /// A press's scale on the pressed shape: the swell while held, the jelly settle after.
+    static func pressScale(_ p: BloomEvents.Press, peak: CGFloat, reduce: Bool, now: TimeInterval) -> CGFloat {
+        guard !reduce, now > p.at else { return 1 }
+        let top = Double(peak)
+        if let end = p.endsAt, now > end {
+            let atEnd = spring(end - p.at, from: 1, to: top, velocity: 0, damping: Press.damping, response: Press.response)
+            return CGFloat(spring(now - end, from: atEnd.value, to: 1, velocity: atEnd.velocity,
+                                  damping: Press.releaseDamping, response: Press.releaseResponse).value)
+        }
+        return CGFloat(spring(now - p.at, from: 1, to: top, velocity: 0, damping: Press.damping, response: Press.response).value)
+    }
+
+    /// A press's light: how bright, and how far it has grown from the press point (0 to 1
+    /// of the way to the shape's far edge). Nil once it has faded.
+    static func pressLight(_ p: BloomEvents.Press, reduce: Bool, now: TimeInterval) -> (intensity: Double, grow: Double)? {
+        let t = now - p.at
+        guard t >= 0 else { return nil }
+        func held(_ t: Double) -> Double {
+            if reduce { return phase(t, 0, fade) }
+            return settle(t / Press.lightRise) * (1 - (1 - Press.lightHeld) * settle(phase(t, Press.lightGrow, Press.lightEase)))
+        }
+        var intensity = held(t)
+        if let end = p.endsAt, now > end {
+            let out = reduce ? phase(now, end, fade) : settle(phase(now, end, Press.lightFade))
+            intensity = held(end - p.at) * (1 - out)
+        }
+        guard intensity > 0.001 else { return nil }
+        return (intensity, reduce ? 1 : settle(t / Press.lightGrow))
+    }
+
+    /// The last moment a press moves: its swell and light while held, its settle and fade after.
+    static func pressBusyUntil(_ p: BloomEvents.Press) -> TimeInterval {
+        guard let end = p.endsAt else { return p.at + max(Press.response * 2, Press.lightGrow + Press.lightEase) }
+        return end + max(Press.releaseSettle, Press.lightFade)
+    }
+
     // MARK: Drop: light through the glass
 
     /// How far the wave travels from `origin`: to the far side of the disc.
@@ -633,7 +760,8 @@ extension Motion {
 
     /// The chosen leaf's soft inner glow: 0 to 1, or 0 with no drop.
     static func chosenGlow(_ e: BloomEvents, now: TimeInterval) -> Double {
-        guard let drop = e.drop, !e.reduce else { return 0 }
+        // A press lights the leaf itself.
+        guard let drop = e.drop, !e.reduce, e.press == nil else { return 0 }
         let t = now - drop.at
         return settle(phase(t, 0, Drop.choose)) * (1 - phase(t, Drop.glideStart, Drop.glowOut))
     }
@@ -653,7 +781,16 @@ extension Motion {
         if e.reduce { return (Look(opacity: 1 - phase(t, 0, fade)), .lit) }
         if t >= Drop.ringAt { return (.hidden, .lit) }
         let from = Hover.smooth ? Hover.lift : 1
-        let lift = lerp(from, Drop.chooseLift, settle(phase(t, 0, Drop.choose)))
+        // After a press, the press's own settle carries on; the lift is only for a choice
+        // that came without one.
+        let lift: CGFloat
+        if let p = e.press, p.target == .leaf(drop.slot) {
+            lift = from * pressScale(p, peak: Press.leafPeak, reduce: false, now: now)
+        } else if e.press != nil {
+            lift = from
+        } else {
+            lift = lerp(from, Drop.chooseLift, settle(phase(t, 0, Drop.choose)))
+        }
         let p = settle(phase(t, Drop.glideStart, Drop.glide))
         let offset = CGSize(width: -center.x * CGFloat(p), height: -center.y * CGFloat(p))
         return (Look(scale: lift * lerp(1, Drop.glideTo, p), offset: offset), .lit)
@@ -731,6 +868,7 @@ extension Motion {
             end = max(end, e.trayAt + Tray.pillDelay + Tray.pill + Tray.pillStagger * 12, (e.trayClosingAt ?? -.infinity) + Tray.close)
         }
         end = max(end, (e.drop?.at ?? -.infinity) + Drop.handoff)
+        if let p = e.press { end = max(end, pressBusyUntil(p)) }
         if Cancel.animated { end = max(end, (e.cancelAt ?? -.infinity) + Cancel.duration) }
         return end + (e.reduce ? fade : 0)
     }

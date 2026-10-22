@@ -100,6 +100,10 @@ final class BloomInteractionView: NSView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         guard model.phase == .open, let choice = model.choice(at: model.hover) else { return false }
+        // A quick press at the drop point starts the choice, like a click on glass.
+        if let target = BloomModel.pressTarget(model.hover) {
+            model.quickPress(target, at: bloomPoint(sender.draggingLocation))
+        }
         delegate?.bloomChose(choice.target, option: choice.option)
         return true
     }
@@ -132,12 +136,17 @@ final class BloomInteractionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        model.pointer(at: bloomPoint(event.locationInWindow))
+        let point = bloomPoint(event.locationInWindow)
+        model.pointer(at: point)
         downHit = model.hover
+        // The slot or chip under the button reacts like a pressed glass button.
+        if let target = BloomModel.pressTarget(model.hover) { model.pressDown(target, at: point) }
     }
 
     override func mouseDragged(with event: NSEvent) {
-        model.pointer(at: bloomPoint(event.locationInWindow))
+        let point = bloomPoint(event.locationInWindow)
+        model.pointer(at: point)
+        if downHit != nil { model.pressMoved(over: BloomModel.pressTarget(model.hover), at: point) }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -145,11 +154,13 @@ final class BloomInteractionView: NSView {
         model.pointer(at: bloomPoint(event.locationInWindow))
         let hit = model.hover
         defer { downHit = nil }
+        // The choice is made on release, over the target the button went down on.
+        let released = model.pressUp(over: BloomModel.pressTarget(hit))
         guard hit == downHit else { return }
         if let leaf = hit.leaf, model.isMore(leaf) {
-            model.toggleTray()
+            if released { model.toggleTray() }
         } else if let choice = model.choice(at: hit) {
-            delegate?.bloomChose(choice.target, option: choice.option)
+            if released { delegate?.bloomChose(choice.target, option: choice.option) }
         } else if hit == .none {
             delegate?.bloomDismissed()
         }
@@ -167,6 +178,8 @@ final class BloomInteractionView: NSView {
             if model.focusIsMore {
                 model.openTray(focusFirst: true)
             } else if let choice = model.keyboardChoice {
+                // A quick press from the focused slot's middle starts the choice.
+                if let press = model.keyboardPress { model.quickPress(press.target, at: press.point) }
                 delegate?.bloomChose(choice.target, option: choice.option)
             }
         case 48: // Tab
@@ -267,6 +280,9 @@ final class TrayInteractionView: NSView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         guard model.phase == .open, let choice = model.trayChoice(at: model.trayHover) else { return false }
+        if let target = BloomModel.pressTarget(model.trayHover) {
+            model.quickPress(target, at: trayPoint(sender.draggingLocation))
+        }
         delegate?.bloomChose(choice.target, option: choice.option)
         return true
     }
@@ -293,12 +309,16 @@ final class TrayInteractionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        model.trayPointer(at: trayPoint(event.locationInWindow))
+        let point = trayPoint(event.locationInWindow)
+        model.trayPointer(at: point)
         downHit = model.trayHover
+        if let target = BloomModel.pressTarget(model.trayHover) { model.pressDown(target, at: point) }
     }
 
     override func mouseDragged(with event: NSEvent) {
-        model.trayPointer(at: trayPoint(event.locationInWindow))
+        let point = trayPoint(event.locationInWindow)
+        model.trayPointer(at: point)
+        if downHit != nil { model.pressMoved(over: BloomModel.pressTarget(model.trayHover), at: point) }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -306,7 +326,8 @@ final class TrayInteractionView: NSView {
         model.trayPointer(at: trayPoint(event.locationInWindow))
         let hit = model.trayHover
         defer { downHit = nil }
-        guard hit == downHit, let choice = model.trayChoice(at: hit) else { return }
+        let released = model.pressUp(over: BloomModel.pressTarget(hit))
+        guard released, hit == downHit, let choice = model.trayChoice(at: hit) else { return }
         delegate?.bloomChose(choice.target, option: choice.option)
     }
 }

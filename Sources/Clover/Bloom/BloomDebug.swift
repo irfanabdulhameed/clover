@@ -185,6 +185,15 @@ enum BloomDebug {
         }
         print(String(format: "first frame %.1f ms", first))
         report("open and hover", times)
+        times = []
+        let label = BloomLayout.labelBox(0, of: m.leafCount).mid
+        clock.now = t0 + 1.5
+        m.pressDown(.leaf(0), at: label)
+        for i in 0..<36 { frame(t0 + 1.5 + Double(i) / 120) }
+        clock.now = t0 + 1.8
+        _ = m.pressUp(over: nil)
+        for i in 0..<36 { frame(t0 + 1.8 + Double(i) / 120) }
+        report("press and release", times)
         // The drop: the wave and the carry, every frame at 120 Hz.
         times = []
         clock.now = t0 + 2
@@ -215,7 +224,11 @@ enum BloomDebug {
         let drop = make(files, arrangement), cancel = make(files, arrangement), tray = make(files, arrangement)
         let dropLight = make(files, arrangement)
         let reduceOpen = make(files, arrangement, reduce: true), reduceDrop = make(files, arrangement, reduce: true)
-        let all = [open, openLight, hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceOpen, reduceDrop]
+        let held = make(files, arrangement), heldLight = make(files, arrangement)
+        let release = make(files, arrangement), releaseLight = make(files, arrangement), releaseChoose = make(files, arrangement)
+        let chipPress = make(files, arrangement), reducePress = make(files, arrangement, reduce: true)
+        let presses = [held, heldLight, release, releaseLight, releaseChoose, chipPress, reducePress]
+        let all = [open, openLight, hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceOpen, reduceDrop] + presses
         for (m, _) in all { await m.waitForThumbnails(timeout: 4) }
 
         // Scripted on the fake clock, after every await, so no timer fires in between.
@@ -223,7 +236,7 @@ enum BloomDebug {
             clock.now = t0
             m.open()
         }
-        for (m, clock) in [hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceDrop] {
+        for (m, clock) in [hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceDrop] + presses {
             clock.now = t0 - 10
             m.open()
         }
@@ -240,7 +253,39 @@ enum BloomDebug {
             clock.now = t0 - 1
             m.pointer(at: label)
             clock.now = t0
+            // As a drop does: a quick press at the drop point, then the choice.
+            m.quickPress(.leaf(leaf), at: label)
             m.drop()
+        }
+        // Presses: off-centre in the slot, towards its outer edge.
+        let r = BloomLayout.radial(leaf, of: count), t = BloomLayout.across(leaf, of: count)
+        let middle = BloomLayout.leafCenter(leaf, of: count)
+        let pressAt = CGPoint(x: middle.x + r.dx * 18 + t.dx * 20, y: middle.y + r.dy * 18 + t.dy * 20)
+        for (m, clock) in [held, heldLight, reducePress] {
+            clock.now = t0 - 1
+            m.pointer(at: pressAt)
+            clock.now = t0
+            m.pressDown(.leaf(leaf), at: pressAt)
+        }
+        for (m, clock) in [release, releaseLight, releaseChoose] {
+            clock.now = t0 - 1
+            m.pointer(at: pressAt)
+            clock.now = t0 - 0.5
+            m.pressDown(.leaf(leaf), at: pressAt)
+            clock.now = t0
+            if m === releaseChoose.0 {
+                if m.pressUp(over: .leaf(leaf)) { m.drop() }
+            } else {
+                _ = m.pressUp(over: nil)
+            }
+        }
+        chipPress.1.now = t0 - 1
+        chipPress.0.pointer(at: label)
+        if let chip = chipPress.0.chipFrames(for: leaf).dropFirst().first {
+            let at = CGPoint(x: chip.minX + chip.width * 0.3, y: chip.midY)
+            chipPress.0.pointer(at: at)
+            chipPress.1.now = t0
+            chipPress.0.pressDown(.chip(leaf: leaf, index: 1), at: at)
         }
         cancel.1.now = t0
         cancel.0.cancel()
@@ -256,6 +301,13 @@ enum BloomDebug {
 
         let ms: (Double) -> TimeInterval = { t0 + $0 / 1000 }
         let rows: [(String, BloomModel, ColorScheme, [Double])] = [
+            ("press, held", held.0, .dark, [0, 60, 150, 300]),
+            ("press, held", heldLight.0, .light, [0, 60, 150, 300]),
+            ("released", release.0, .dark, [0, 80, 160, 300]),
+            ("released", releaseLight.0, .light, [0, 80, 160, 300]),
+            ("released on it: the choice", releaseChoose.0, .dark, [0, 80, 160, 300, 420, 550]),
+            ("chip pressed", chipPress.0, .dark, [0, 60, 150, 300]),
+            ("reduce motion: press", reducePress.0, .dark, [0, 75, 150]),
             ("drop", drop.0, .dark, [0, 45, 90, 140, 200, 280, 360, 420, 480, 550]),
             ("drop", dropLight.0, .light, [0, 45, 90, 140, 200, 280, 360, 420, 480, 550]),
             ("open, instant", open.0, .dark, [0]),

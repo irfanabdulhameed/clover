@@ -139,11 +139,28 @@ struct BloomScene: View {
         // While a slot fades out it still draws its bright fill, fading.
         let amount = state.fill == .flash || e.drop != nil ? 1 : Motion.litAmount(index, e, now: now)
         let fill: SlotFill = state.fill == .frosted && amount > 0 && e.drop == nil ? .lit : state.fill
+        let lights = slotLights(index, count: count, e)
         SlotView(index: index, count: count, title: title(of: leaf), symbol: symbol(of: leaf), hue: hue(of: index),
                  fill: fill, litAmount: amount, innerGlow: e.drop?.slot == index ? Motion.chosenGlow(e, now: now) : 0,
+                 press: lights.press, spill: lights.spill,
                  focused: model.focusedLeaf == index && model.focusChip == nil && model.phase == .open)
             .look(state.look)
             .position(offset(middle, center))
+    }
+
+    /// A press's light on slot `index`: its own light when it is the pressed slot, or the
+    /// faint spill on its near edge when it is close to the press point.
+    private func slotLights(_ index: Int, count: Int, _ e: BloomEvents) -> (press: PressLight?, spill: PressLight?) {
+        guard let p = e.press, case .leaf(let pressed) = p.target, pressed < count,
+              let light = Motion.pressLight(p, reduce: e.reduce, now: now) else { return (nil, nil) }
+        let bounds = BloomLayout.leafBounds(index, of: count)
+        let local = CGPoint(x: p.point.x - bounds.minX, y: p.point.y - bounds.minY)
+        if pressed == index {
+            return (PressLight.filling(bounds.size, from: local, light), nil)
+        }
+        let near = BloomLayout.distance(p.point, toOutline: BloomLayout.leafOutline(index, of: count))
+        guard near < Motion.Press.spillReach else { return (nil, nil) }
+        return (nil, PressLight(point: local, radius: near, intensity: light.intensity))
     }
 
     /// The open slot's chips being born, the last slot's chips shrinking back into it.
@@ -157,6 +174,7 @@ struct BloomScene: View {
                 let born = Motion.chipIn(rank: rank, since: e.chipsAt, e, now: now)
                 let lit = e.litChip == index
                 let chosen = e.drop?.chip == index && e.drop?.pill == nil
+                let press = PressLight.on(.chip(leaf: open, index: index), frame: frame, e, now: now)
                 ChipView(title: target.options[index].title,
                          isDefault: target.options[index].id == target.defaultOption?.id,
                          isLit: lit || chosen,
@@ -164,7 +182,8 @@ struct BloomScene: View {
                          isFocused: model.usingKeyboard && model.focusChip == index && model.phase == .open,
                          hue: BloomStyle.hue(target.format.family, scheme),
                          look: leaving ?? born,
-                         pop: lit ? Motion.litPop(at: e.litChipAt, e, now: now) : 1)
+                         pop: (lit ? Motion.litPop(at: e.litChipAt, e, now: now) : 1) * press.scale,
+                         press: press.light)
                     .frame(width: frame.width, height: frame.height)
                     .position(offset(frame.mid, center))
             }
@@ -260,6 +279,9 @@ struct SlotView: View {
     var litAmount: Double = 1
     /// The chosen leaf's soft white inner glow, 0 to 1.
     var innerGlow: Double = 0
+    /// A press's light on this slot, and the spill of a press on a neighbour.
+    var press: PressLight? = nil
+    var spill: PressLight? = nil
     let focused: Bool
 
     @Environment(\.colorScheme) private var scheme
@@ -288,7 +310,9 @@ struct SlotView: View {
                     .clipShape(shape)
                     .opacity(0.9 * innerGlow)
             }
+            if let spill { SpillLightView(shape: shape, light: spill, size: bounds.size) }
             shape.stroke(rim(lit: lit, dark: dark), lineWidth: 0.75)
+            if let press { PressLightView(shape: shape, light: press, size: bounds.size) }
             // No midrib line (Irfan, 22 Oct 2026). The label turns with its leaf.
             if fill != .flash {
                 SlotLabel(title: title, symbol: symbol, hue: hue, lit: lit, width: label.size.width)
@@ -477,12 +501,17 @@ struct ChipView: View {
     let hue: Color
     var look = Look.still
     var pop: CGFloat = 1
+    /// A press's light, in the chip's own coordinates.
+    var press: PressLight? = nil
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
             if isLit { Capsule().fill(isFlash ? Color.white : BloomStyle.litFill(scheme)) }
+            if let press {
+                GeometryReader { geo in PressLightView(shape: Capsule(), light: press, size: geo.size) }
+            }
             HStack(spacing: 4) {
                 if isDefault {
                     Circle().fill(isLit ? BloomStyle.litInk(scheme) : hue).frame(width: 5, height: 5)
@@ -610,6 +639,96 @@ struct WaveFront: View {
     }
 }
 
+// MARK: - The press
+
+/// A press's light on a shape, in the shape's own coordinates: where it comes from, how
+/// far it reaches now, and how bright it is.
+struct PressLight: Equatable {
+    var point: CGPoint
+    var radius: CGFloat
+    var intensity: Double
+
+    /// The light of a press on a shape of `size`, grown from `point` towards its far corner.
+    static func filling(_ size: CGSize, from point: CGPoint, _ light: (intensity: Double, grow: Double)) -> PressLight {
+        let corners = [CGPoint.zero, CGPoint(x: size.width, y: 0), CGPoint(x: 0, y: size.height), CGPoint(x: size.width, y: size.height)]
+        let far = corners.map { hypot($0.x - point.x, $0.y - point.y) }.max() ?? 1
+        return PressLight(point: point, radius: far * CGFloat(light.grow), intensity: light.intensity)
+    }
+
+    /// The light and scale of a press on `target`, drawn in `frame`, if it is the one pressed.
+    static func on(_ target: BloomEvents.Press.Target, frame: CGRect, _ e: BloomEvents, now: TimeInterval) -> (light: PressLight?, scale: CGFloat) {
+        guard let p = e.press, p.target == target else { return (nil, 1) }
+        let scale = Motion.pressScale(p, peak: Motion.Press.chipPeak, reduce: e.reduce, now: now)
+        guard let light = Motion.pressLight(p, reduce: e.reduce, now: now) else { return (nil, scale) }
+        let local = CGPoint(x: p.point.x - frame.minX, y: p.point.y - frame.minY)
+        return (filling(frame.size, from: local, light), scale)
+    }
+}
+
+/// Glass lighting up where it is pressed: a soft radial light growing from the press
+/// point, a soft glow along the inside of the edge and a specular rim, brightest on top.
+/// In Light a touch of shade under it lets the lit part stand out. Drawn on the shape and
+/// clipped to it, with no glass of its own.
+struct PressLightView<S: Shape>: View {
+    let shape: S
+    let light: PressLight
+    let size: CGSize
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let p = Motion.Press.self
+        let dark = scheme == .dark
+        let i = light.intensity
+        let core = (dark ? p.lightDark : p.lightLight) * i
+        let unit = UnitPoint(x: light.point.x / max(size.width, 1), y: light.point.y / max(size.height, 1))
+        return ZStack {
+            if !dark { shape.fill(Color.black.opacity(p.shadeLight * i)) }
+            Rectangle()
+                .fill(RadialGradient(stops: [
+                    Gradient.Stop(color: Color.white.opacity(core), location: 0),
+                    Gradient.Stop(color: Color.white.opacity(core * 0.45), location: p.lightCore),
+                    Gradient.Stop(color: Color.white.opacity(0), location: 1),
+                ], center: unit, startRadius: 0, endRadius: max(light.radius, 1)))
+                .blendMode(dark ? .plusLighter : .normal)
+            shape.stroke(Color.white.opacity((dark ? p.edgeDark : p.edgeLight) * i), lineWidth: 8)
+                .blur(radius: 5)
+            shape.stroke(LinearGradient(colors: [Color.white.opacity(p.rim * i), Color.white.opacity(0.2 * i)],
+                                        startPoint: .top, endPoint: .bottom), lineWidth: 1.5)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(shape)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The faint spill of a press's light on a neighbour's near edge: brightest at the edge
+/// nearest the press point (`light.radius` away), gone `Motion.Press.spillReach` further in.
+struct SpillLightView<S: Shape>: View {
+    let shape: S
+    let light: PressLight
+    let size: CGSize
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let dark = scheme == .dark
+        let end = light.radius + Motion.Press.spillReach
+        let a = Motion.Press.spill * light.intensity * (dark ? 1 : 1.6)
+        let unit = UnitPoint(x: light.point.x / max(size.width, 1), y: light.point.y / max(size.height, 1))
+        return Rectangle()
+            .fill(RadialGradient(stops: [
+                Gradient.Stop(color: Color.white.opacity(a), location: 0),
+                Gradient.Stop(color: Color.white.opacity(a), location: light.radius / end),
+                Gradient.Stop(color: Color.white.opacity(0), location: 1),
+            ], center: unit, startRadius: 0, endRadius: end))
+            .blendMode(dark ? .plusLighter : .normal)
+            .frame(width: size.width, height: size.height)
+            .clipShape(shape)
+            .allowsHitTesting(false)
+    }
+}
+
 // MARK: - More tray
 
 /// The More tray: a glass panel of pills, one per target that isn't on a slot, with the
@@ -651,13 +770,15 @@ struct TrayScene: View {
                     if frames.indices.contains(index) {
                         let lit = e.litPill == index
                         let chosen = e.drop?.pill == index && e.drop?.chip == nil
+                        let press = PressLight.on(.pill(index), frame: frames[index], e, now: now)
                         PillView(title: target.title, symbol: BloomStyle.symbol(for: target),
                                  hue: BloomStyle.hue(target.format.family, scheme),
                                  isLit: lit || chosen,
                                  isFlash: false,
-                                 isFocused: model.focusedPill == index && model.focusChip == nil && model.phase == .open)
+                                 isFocused: model.focusedPill == index && model.focusChip == nil && model.phase == .open,
+                                 press: press.light)
                             .frame(width: frames[index].width, height: frames[index].height)
-                            .scaleEffect(lit ? Motion.litPop(at: e.litPillAt, e, now: now) : 1)
+                            .scaleEffect((lit ? Motion.litPop(at: e.litPillAt, e, now: now) : 1) * press.scale)
                             .look(Motion.pill(index, e, now: now))
                             .offset(x: frames[index].minX, y: frames[index].minY)
                     }
@@ -672,6 +793,7 @@ struct TrayScene: View {
                         let rank = e.pillChipRank.indices.contains(index) ? e.pillChipRank[index] : index
                         let lit = e.litChip == index
                         let chosen = e.drop?.pill == open && e.drop?.chip == index
+                        let press = PressLight.on(.pillChip(pill: open, index: index), frame: frame, e, now: now)
                         ChipView(title: target.options[index].title,
                                  isDefault: target.options[index].id == target.defaultOption?.id,
                                  isLit: lit || chosen,
@@ -679,7 +801,8 @@ struct TrayScene: View {
                                  isFocused: model.usingKeyboard && model.focusChip == index && model.phase == .open,
                                  hue: BloomStyle.hue(target.format.family, scheme),
                                  look: Motion.chipIn(rank: rank, since: e.pillChipsAt, e, now: now),
-                                 pop: lit ? Motion.litPop(at: e.litChipAt, e, now: now) : 1)
+                                 pop: (lit ? Motion.litPop(at: e.litChipAt, e, now: now) : 1) * press.scale,
+                                 press: press.light)
                             .frame(width: frame.width, height: frame.height)
                             .offset(x: frame.minX, y: frame.minY)
                     }
@@ -703,6 +826,8 @@ struct PillView: View {
     let isLit: Bool
     var isFlash = false
     let isFocused: Bool
+    /// A press's light, in the pill's own coordinates.
+    var press: PressLight? = nil
 
     @Environment(\.colorScheme) private var scheme
 
@@ -716,6 +841,9 @@ struct PillView: View {
             } else {
                 Capsule().fill(dark ? Color.white.opacity(0.09) : Color.white.opacity(0.55))
                 Capsule().strokeBorder(dark ? Color.white.opacity(0.12) : Color.black.opacity(0.07), lineWidth: 0.75)
+            }
+            if let press {
+                GeometryReader { geo in PressLightView(shape: Capsule(), light: press, size: geo.size) }
             }
             HStack(spacing: TrayLayout.iconGap) {
                 Image(systemName: symbol)

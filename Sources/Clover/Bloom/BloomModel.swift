@@ -423,8 +423,10 @@ final class BloomModel: ObservableObject {
         return false
     }
 
-    /// Esc closes the tray first. Returns false when there was no tray to close.
+    /// Esc lets go of a press first, then closes the tray. Returns false when there was
+    /// neither.
     func escape() -> Bool {
+        if cancelPress() { return true }
         guard trayOpen else { return false }
         closeTray()
         return true
@@ -517,6 +519,97 @@ final class BloomModel: ObservableObject {
         case .leaf(let leaf): return (leaf, nil, nil)
         case .chip(let leaf, let index): return (leaf, index, nil)
         default: return nil
+        }
+    }
+
+    // MARK: Press
+
+    typealias PressTarget = BloomEvents.Press.Target
+
+    /// What a press on the clover at `hit` presses: a slot or a chip.
+    static func pressTarget(_ hit: BloomHit) -> PressTarget? {
+        switch hit {
+        case .leaf(let leaf): .leaf(leaf)
+        case .chip(let leaf, let index): .chip(leaf: leaf, index: index)
+        default: nil
+        }
+    }
+
+    /// What a press in the tray at `hit` presses: a pill or one of its chips.
+    static func pressTarget(_ hit: TrayHit) -> PressTarget? {
+        switch hit {
+        case .pill(let pill): .pill(pill)
+        case .chip(let pill, let index): .pillChip(pill: pill, index: index)
+        default: nil
+        }
+    }
+
+    /// The button went down on `target` at `point` (clover coordinates for slots and
+    /// chips, tray coordinates for pills). A pressed slot lights at once.
+    func pressDown(_ target: PressTarget, at point: CGPoint) {
+        guard phase == .open else { return }
+        if case .leaf(let leaf) = target, restingLeaf != leaf {
+            restTimer?.cancel()
+            restingLeaf = leaf
+        }
+        events.press = BloomEvents.Press(target: target, point: point, at: clock())
+        changed()
+    }
+
+    /// The pointer moved with the button down, now over `target`: off its own target the
+    /// press lets go; back on it, it presses again.
+    func pressMoved(over target: PressTarget?, at point: CGPoint) {
+        guard phase == .open, let p = events.press, !p.quick, !p.chosen else { return }
+        if target == p.target {
+            guard p.releasedAt != nil else { return }
+            pressDown(p.target, at: point)
+        } else if p.releasedAt == nil {
+            events.press?.releasedAt = clock()
+            changed()
+        }
+    }
+
+    /// The button came up over `target`. True only when it lets go over the target it went
+    /// down on: a choice. Anywhere else the press springs back and nothing is chosen.
+    func pressUp(over target: PressTarget?) -> Bool {
+        guard let p = events.press, !p.quick, p.releasedAt == nil else { return false }
+        let chosen = phase == .open && target == p.target
+        events.press?.releasedAt = clock()
+        events.press?.chosen = chosen
+        changed()
+        return chosen
+    }
+
+    /// A drop or a key: a quick press on `target` at `point`, which lets go by itself.
+    func quickPress(_ target: PressTarget, at point: CGPoint) {
+        guard phase == .open else { return }
+        events.press = BloomEvents.Press(target: target, point: point, at: clock(), quick: true, chosen: true)
+        changed()
+    }
+
+    /// Lets go of a held press without choosing. True when there was one.
+    func cancelPress() -> Bool {
+        guard let p = events.press, !p.quick, p.releasedAt == nil else { return false }
+        events.press?.releasedAt = clock()
+        changed()
+        return true
+    }
+
+    /// Where Return presses: the focused slot, pill or chip, at its middle.
+    var keyboardPress: (target: PressTarget, point: CGPoint)? {
+        switch focus {
+        case .leaf(let leaf)?:
+            if let chip = focusChip, chipFrames(for: leaf).indices.contains(chip) {
+                return (.chip(leaf: leaf, index: chip), chipFrames(for: leaf)[chip].mid)
+            }
+            return (.leaf(leaf), BloomLayout.leafCenter(leaf, of: leafCount))
+        case .pill(let pill)?:
+            if let chip = focusChip, pillChipFrames(for: pill).indices.contains(chip) {
+                return (.pillChip(pill: pill, index: chip), pillChipFrames(for: pill)[chip].mid)
+            }
+            return pillFrames.indices.contains(pill) ? (.pill(pill), pillFrames[pill].mid) : nil
+        case nil:
+            return nil
         }
     }
 
