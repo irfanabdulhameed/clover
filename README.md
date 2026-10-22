@@ -27,6 +27,7 @@ Everything runs on your Mac. Clover has no network code, no accounts and no anal
 - [Privacy](#privacy)
 - [FAQ](#faq)
 - [For developers](#for-developers)
+- [License](#license)
 
 ## Features
 
@@ -204,6 +205,6 @@ scripts              build.sh, test.sh, make-icon.sh, check-builtin.sh, check-me
 .build/debug/Clover --bloom-selftest   # the clover's layout and motion checks
 ```
 
----
+## License
 
-© 2026 Irfan Abdul Hameed. All rights reserved.
+Clover is free and open source under the [MIT License](LICENSE). © 2026 Irfan Abdul Hameed.
