@@ -57,8 +57,8 @@ final class BloomModel: ObservableObject {
     @Published var events = BloomEvents()
     /// True while something moves: the view's frame clock runs only then.
     @Published private(set) var animating = false
-    /// Light glass with a clover-green tint (`LeafStyle.clover`), or clear glass.
-    @Published var tinted = true
+    /// The glass's tint (Settings → Feel → Glass tint); none is clear glass.
+    @Published var tint = GlassTint.none
     /// The point of the tray, as a fraction of its size, that it grows out of: the side
     /// nearest the More slot. Set by the controller when it places the tray.
     var trayAnchor = CGPoint(x: 0.5, y: 0.5)
@@ -68,8 +68,8 @@ final class BloomModel: ObservableObject {
     var hoverDelay: TimeInterval = Motion.Hover.delay
     /// Rest on a slot or a pill this long before its chips open.
     var chipDelay: TimeInterval = Motion.Chips.delay
-    /// Rest on More this long, during a drag, to open the tray.
-    var moreDelay: TimeInterval = Motion.Tray.delay
+    /// Rest on More this long to open the tray, in drag and in click mode.
+    var moreDelay: TimeInterval = Motion.More.intent
     /// Fades only: nothing travels, pops, ripples or blurs.
     var reduceMotion: Bool {
         get { events.reduce }
@@ -89,6 +89,8 @@ final class BloomModel: ObservableObject {
     private var restTimer: DispatchWorkItem?
     private var chipTimer: DispatchWorkItem?
     private var moreTimer: DispatchWorkItem?
+    /// Closes the tray once the pointer has been off More and off the tray a moment.
+    private var trayLeaveTimer: DispatchWorkItem?
     private var quietTimer: DispatchWorkItem?
     private var thumbnailTask: Task<Void, Never>?
     private(set) var pillWidth: CGFloat = TrayLayout.pillMinWidth
@@ -100,6 +102,7 @@ final class BloomModel: ObservableObject {
 
     func reset(mode: Mode) {
         cancelTimers()
+        cancelTrayLeave()
         thumbnailTask?.cancel()
         self.mode = mode
         files = []
@@ -137,11 +140,13 @@ final class BloomModel: ObservableObject {
         changed()
     }
 
-    /// A still clover, settled and with no clock, for the dashboard's preview.
-    static func still(arrangement: Arrangement, picture: NSImage?, lit: Int?) -> BloomModel {
+    /// A still clover, settled and with no clock, for the dashboard's preview: the hub shows
+    /// `picture` and `caption` as the live hub shows a file and its size.
+    static func still(arrangement: Arrangement, picture: NSImage?, caption: String = "", lit: Int?, tint: GlassTint = .none) -> BloomModel {
         let model = BloomModel()
+        model.tint = tint
         model.arrangement = arrangement
-        model.summaryCache = ""
+        model.summaryCache = caption
         model.hasFiles = picture != nil
         model.pictures = picture.map { [$0] } ?? []
         model.restingLeaf = lit
@@ -224,8 +229,9 @@ final class BloomModel: ObservableObject {
         if usingKeyboard { usingKeyboard = false }
         let chips = openLeaf.map { chipFrames(for: $0) } ?? []
         let hit = BloomLayout.hit(point, count: leafCount, open: openLeaf, chips: chips)
-        // Back on the clover, off More, closes the tray.
+        // Back on the clover, off More, closes the tray; off the clover, it waits a moment.
         if trayOpen, hit == .hub || (hit.leaf != nil && hit.leaf != moreIndex) { closeTray() }
+        if hit.leaf != nil && hit.leaf == moreIndex { cancelTrayLeave() } else if hit == .none { trayMaybeLeft() }
         guard hit != hover else {
             changed()
             return
@@ -240,7 +246,26 @@ final class BloomModel: ObservableObject {
         guard phase == .open, hover != .none else { return }
         hover = .none
         pointerLeafChanged(nil)
+        trayMaybeLeft()
         changed()
+    }
+
+    /// The pointer is off More and maybe off the tray: unless it comes back to either,
+    /// the tray closes after `Motion.More.leaveGrace`. Keys keep it open.
+    private func trayMaybeLeft() {
+        guard trayOpen, !usingKeyboard, trayHover == .none, trayLeaveTimer == nil else { return }
+        schedule(&trayLeaveTimer, after: Motion.More.leaveGrace) { [weak self] in
+            guard let self else { return }
+            self.trayLeaveTimer = nil
+            guard self.phase == .open, self.trayOpen, !self.usingKeyboard, self.trayHover == .none,
+                  !(self.hover.leaf != nil && self.hover.leaf == self.moreIndex) else { return }
+            self.closeTray()
+        }
+    }
+
+    private func cancelTrayLeave() {
+        trayLeaveTimer?.cancel()
+        trayLeaveTimer = nil
     }
 
     private func pointerLeafChanged(_ leaf: Int?) {
@@ -261,7 +286,8 @@ final class BloomModel: ObservableObject {
             }
         }
         if isMore(leaf) {
-            guard mode == .drag, !trayOpen else { return }
+            // Resting on More opens its tray, in drag and in click mode.
+            guard !trayOpen else { return }
             schedule(&moreTimer, after: moreDelay) { [weak self] in
                 guard let self, self.phase == .open, self.hover.leaf == leaf, self.isMore(leaf) else { return }
                 self.openTray(focusFirst: false)
@@ -297,6 +323,7 @@ final class BloomModel: ObservableObject {
     }
 
     func closeTray() {
+        cancelTrayLeave()
         guard trayOpen else { return }
         trayOpen = false
         trayHover = .none
@@ -315,6 +342,7 @@ final class BloomModel: ObservableObject {
     /// The pointer moved to `point`, in tray coordinates.
     func trayPointer(at point: CGPoint) {
         guard phase == .open, trayOpen else { return }
+        cancelTrayLeave()
         trayPointerPoint = point
         if usingKeyboard { usingKeyboard = false }
         let chips = openPill.map { pillChipFrames(for: $0) } ?? []
@@ -333,6 +361,7 @@ final class BloomModel: ObservableObject {
         guard phase == .open, trayHover != .none else { return }
         trayHover = .none
         trayPillChanged(nil)
+        if !(hover.leaf != nil && hover.leaf == moreIndex) { trayMaybeLeft() }
         changed()
     }
 

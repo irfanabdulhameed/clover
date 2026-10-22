@@ -67,10 +67,12 @@ enum BloomDebug {
         let noTargets = rest.contains("--no-targets")
         let frames = rest.contains("--frames")
         let bench = rest.contains("--bench")
-        rest.removeAll { $0 == "--no-targets" || $0 == "--frames" || $0 == "--bench" }
+        let tints = rest.contains("--tints")
+        rest.removeAll { $0 == "--no-targets" || $0 == "--frames" || $0 == "--bench" || $0 == "--tints" }
         let files = rest.map { URL(fileURLWithPath: $0) }
         let arrangement = noTargets ? Arrangement(leaves: [], more: []) : model.arrangement(for: files)
         if bench { return await benchmark(files: files, arrangement: arrangement) }
+        if tints { return await renderTints(files: files, arrangement: arrangement, to: out) }
         if frames { return await renderFrames(files: files, arrangement: arrangement, to: out) }
         let all = arrangement.all
 
@@ -154,6 +156,40 @@ enum BloomDebug {
         return write(sheet, to: out)
     }
 
+    // MARK: Tints
+
+    /// The clover in a few glass tints, in Light and Dark, with a slot lit so the neutral
+    /// hover shows against the tint.
+    static func renderTints(files: [URL], arrangement: Arrangement, to out: URL) async -> Int32 {
+        let tints: [GlassTint] = [.none, .preset(.clover), .preset(.blue), .preset(.pink), .preset(.graphite), .custom(0xE0A030)]
+        let models = tints.map { tint -> (GlassTint, BloomModel, FakeClock) in
+            let (m, clock) = make(files, arrangement)
+            m.tint = tint
+            return (tint, m, clock)
+        }
+        for (_, m, _) in models { await m.waitForThumbnails(timeout: 4) }
+        let t0: TimeInterval = 1000
+        for (_, m, clock) in models {
+            clock.now = t0 - 10
+            m.open()
+            clock.now = t0 - 5
+            m.pointer(at: BloomLayout.labelBox(1, of: m.leafCount).mid)
+        }
+        let tile: CGFloat = 470
+        let sheet = VStack(spacing: 0) {
+            ForEach([ColorScheme.light, .dark], id: \.self) { scheme in
+                HStack(spacing: 0) {
+                    ForEach(models.indices, id: \.self) { i in
+                        Tile(title: "\(scheme == .dark ? "Dark" : "Light") · \(models[i].0.title)", scheme: scheme, width: tile, height: tile) {
+                            BloomView(model: models[i].1, time: t0)
+                        }
+                    }
+                }
+            }
+        }
+        return write(sheet, to: out, scale: 1)
+    }
+
     // MARK: Frame cost
 
     /// Times whole frames of the clover (the view built, laid out and drawn at 2x on the
@@ -228,7 +264,10 @@ enum BloomDebug {
         let release = make(files, arrangement), releaseLight = make(files, arrangement), releaseChoose = make(files, arrangement)
         let chipPress = make(files, arrangement), reducePress = make(files, arrangement, reduce: true)
         let presses = [held, heldLight, release, releaseLight, releaseChoose, chipPress, reducePress]
-        let all = [open, openLight, hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceOpen, reduceDrop] + presses
+        let moreOpen = make(files, arrangement), moreOpenLight = make(files, arrangement), moreClose = make(files, arrangement)
+        let moreFade = make(files, arrangement, reduce: true)
+        let mores = [moreOpen, moreOpenLight, moreClose, moreFade]
+        let all = [open, openLight, hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceOpen, reduceDrop] + presses + mores
         for (m, _) in all { await m.waitForThumbnails(timeout: 4) }
 
         // Scripted on the fake clock, after every await, so no timer fires in between.
@@ -236,7 +275,7 @@ enum BloomDebug {
             clock.now = t0
             m.open()
         }
-        for (m, clock) in [hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceDrop] + presses {
+        for (m, clock) in [hover, chipsIn, chipsOut, drop, dropLight, cancel, tray, reduceDrop] + presses + mores {
             clock.now = t0 - 10
             m.open()
         }
@@ -256,6 +295,21 @@ enum BloomDebug {
             // As a drop does: a quick press at the drop point, then the choice.
             m.quickPress(.leaf(leaf), at: label)
             m.drop()
+        }
+        // More: the + turns into × as its tray opens, and back as it closes.
+        if let more = moreOpen.0.moreIndex {
+            let moreAt = BloomLayout.labelBox(more, of: count).mid
+            for (m, clock) in [moreOpen, moreOpenLight, moreFade] {
+                clock.now = t0 - Motion.More.intent
+                m.pointer(at: moreAt)
+                clock.now = t0
+                m.openTray(focusFirst: false)
+            }
+            moreClose.1.now = t0 - 1
+            moreClose.0.pointer(at: moreAt)
+            moreClose.0.openTray(focusFirst: false)
+            moreClose.1.now = t0
+            moreClose.0.closeTray()
         }
         // Presses: off-centre in the slot, towards its outer edge.
         let r = BloomLayout.radial(leaf, of: count), t = BloomLayout.across(leaf, of: count)
@@ -301,6 +355,10 @@ enum BloomDebug {
 
         let ms: (Double) -> TimeInterval = { t0 + $0 / 1000 }
         let rows: [(String, BloomModel, ColorScheme, [Double])] = [
+            ("More opens: + to ×", moreOpen.0, .dark, [-200, 0, 45, 90, 180]),
+            ("More opens: + to ×", moreOpenLight.0, .light, [-200, 0, 45, 90, 180]),
+            ("More closes: × to +", moreClose.0, .dark, [0, 40, 80, 150]),
+            ("reduce motion: More", moreFade.0, .dark, [0, 75, 150]),
             ("press, held", held.0, .dark, [0, 60, 150, 300]),
             ("press, held", heldLight.0, .light, [0, 60, 150, 300]),
             ("released", release.0, .dark, [0, 80, 160, 300]),

@@ -98,7 +98,16 @@ enum BloomStyle {
 
     /// The glow and ripple around a lit slot.
     static func cloverGlow(_ scheme: ColorScheme) -> Color { rgb(scheme == .dark ? 0x3FD27F : 0x2DB868) }
-    /// The disc's light tint with `LeafStyle.clover`.
+    /// The glass's light tint for `tint`, or nil for clear glass. Kept faint in Light and in
+    /// Dark, so any colour stays subtle and the labels stay legible. Clover green is the
+    /// green the disc has always had.
+    static func glassTint(_ tint: GlassTint, _ scheme: ColorScheme) -> Color? {
+        guard let colour = tint.rgb else { return nil }
+        if tint == .preset(.clover) { return discTint(scheme) }
+        return rgb(colour).opacity(scheme == .dark ? 0.18 : 0.20)
+    }
+
+    /// The clover-green tint of the disc.
     static func discTint(_ scheme: ColorScheme) -> Color {
         rgb(scheme == .dark ? 0x3FC779 : 0x5ACF8C).opacity(scheme == .dark ? 0.16 : 0.20)
     }
@@ -124,10 +133,20 @@ private struct SnapshotKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+/// The glass tint, for views drawn outside the clover's own window (the dashboard's preview).
+private struct GlassTintKey: EnvironmentKey {
+    static let defaultValue = GlassTint.none
+}
+
 extension EnvironmentValues {
     var bloomSnapshot: Bool {
         get { self[SnapshotKey.self] }
         set { self[SnapshotKey.self] = newValue }
+    }
+
+    var glassTint: GlassTint {
+        get { self[GlassTintKey.self] }
+        set { self[GlassTintKey.self] = newValue }
     }
 }
 

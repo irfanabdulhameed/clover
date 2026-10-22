@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import CloverCore
 
 /// Checks the clover's slots, geometry, hit-testing, edge clamping, More tray, model,
@@ -35,6 +36,9 @@ enum BloomSelfTest {
         chipTexts()
         finder()
         hold()
+        tints()
+        triggerToggle()
+        moreIcon()
         reveal()
         print("\(checks - failures) of \(checks) checks passed")
         return failures == 0 ? 0 : 1
@@ -501,17 +505,22 @@ enum BloomSelfTest {
         expect(m.openLeaf == 1, "chips open after resting")
         m.chipDelay = 0
 
-        // Click mode: hovering More does nothing; clicking it opens the tray.
+        // Click mode too: resting on More opens its tray after a short intent delay; a
+        // click on More still toggles it.
         let moreLabel = center(L.labelBox(5, of: 6))
+        expect(m.moreDelay == Motion.More.intent && abs(Motion.More.intent - 0.12) < 0.001, "the intent delay is 120 ms")
         m.moreDelay = 0.05
         m.pointer(at: moreLabel)
+        expect(!m.trayOpen, "a sweep across More doesn't pop the tray")
         try? await Task.sleep(nanoseconds: 150_000_000)
-        expect(!m.trayOpen, "in click mode, resting on More doesn't open the tray")
+        expect(m.trayOpen, "in click mode, resting on More opens the tray")
         expect(m.hint == "\(arrangement.more.count) more", "More's hint: \(m.hint)")
         m.toggleTray()
-        expect(m.trayOpen && m.litLeaf == 5, "clicking More opens the tray, More lit")
+        expect(!m.trayOpen, "clicking More closes it")
         m.toggleTray()
-        expect(!m.trayOpen, "clicking More again closes it")
+        expect(m.trayOpen && m.litLeaf == 5, "and opens it again, More lit")
+        m.toggleTray()
+        m.pointer(at: .zero)
 
         // Drag mode: resting on More opens the tray; it stays open off the clover and
         // closes back on a leaf or the hub.
@@ -526,6 +535,8 @@ enum BloomSelfTest {
         m.pointer(at: CGPoint(x: 0, y: -240))
         expect(m.trayOpen, "the gap between More and the tray keeps it open")
         m.pointerLeft()
+        try? await Task.sleep(nanoseconds: UInt64(Motion.More.leaveGrace * 0.5 * 1e9))
+        expect(m.trayOpen, "crossing the gap to the tray, it stays open")
         let pills = m.pillFrames
         m.trayPointer(at: center(pills[0]))
         expect(m.trayHover == .pill(0) && m.litPill == 0, "on the first pill")
@@ -550,6 +561,12 @@ enum BloomSelfTest {
         try? await Task.sleep(nanoseconds: 150_000_000)
         m.pointer(at: .zero)
         expect(!m.trayOpen, "the hub closes it too")
+        // Off More and off the tray a moment, the tray closes.
+        m.pointer(at: moreLabel)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        m.pointerLeft()
+        try? await Task.sleep(nanoseconds: UInt64((Motion.More.leaveGrace + 0.1) * 1e9))
+        expect(!m.trayOpen, "leaving More and the tray closes it")
         m.mode = .click
         m.onTrayChange = nil
 
@@ -969,6 +986,85 @@ enum BloomSelfTest {
         expect(FinderSelection.failure(from: [NSAppleScript.errorNumber: -600, NSAppleScript.errorMessage: "Not running"]) == .script(-600, "Not running"),
                "other errors are kept")
         expect(FinderSelection.source.contains("get selection as alias list"), "the script asks for aliases")
+    }
+
+    // MARK: Glass tint
+
+    private static func tints() {
+        let all: [GlassTint] = [.none] + GlassTint.Preset.allCases.map(GlassTint.preset) + [.custom(0x4AA3A2), .custom(0x000000), .custom(0xFFFFFF)]
+        for tint in all {
+            expect(GlassTint(stored: tint.stored) == tint, "\(tint.title) is stored and read back as \(tint.stored)")
+        }
+        expect(GlassTint.none.stored == "none" && GlassTint.preset(.clover).stored == "clover" && GlassTint.custom(0x4AA3A2).stored == "#4AA3A2",
+               "stored as none, a preset's name, or #RRGGBB")
+        expect(GlassTint(stored: nil) == nil && GlassTint(stored: "bogus") == nil && GlassTint(stored: "#12345") == nil && GlassTint(stored: "#GG0000") == nil,
+               "anything else isn't a tint")
+        expect(GlassTint.migrated(fromLeafStyle: "clover") == .preset(.clover), "the old clover green stays clover green")
+        expect(GlassTint.migrated(fromLeafStyle: "clear") == .none && GlassTint.migrated(fromLeafStyle: nil) == .none,
+               "the old clear glass, and no setting at all, is no tint")
+        expect(GlassTint.Preset.allCases.map(\.rawValue) == ["clover", "blue", "purple", "pink", "orange", "graphite"], "the six presets, in order")
+        for scheme in [ColorScheme.light, .dark] {
+            expect(BloomStyle.glassTint(.none, scheme) == nil, "no tint is clear glass")
+            for tint in all.dropFirst() {
+                expect(BloomStyle.glassTint(tint, scheme) != nil, "\(tint.title) tints the glass")
+            }
+        }
+        expect(GlassTint.preset(.clover).rgb == 0x3FC779 && GlassTint.custom(0xFF4AA3A2).rgb == 0x4AA3A2, "colours are 0xRRGGBB; anything above is ignored")
+        expect(TintPicker.rgb(of: BloomStyle.rgb(0x4AA3A2)) == 0x4AA3A2, "a picked colour round-trips to its hex")
+    }
+
+    // MARK: The trigger key closes the clover
+
+    private static func triggerToggle() {
+        // Drag mode: the press that opened it doesn't count; a new press does.
+        var drag = TriggerToggle(keyDown: true)
+        expect(!drag.poll(keyDown: true) && !drag.poll(keyDown: true), "the opening press, still held, doesn't close it")
+        expect(!drag.poll(keyDown: false), "the key comes up")
+        expect(drag.poll(keyDown: true), "a new press closes it")
+        expect(!drag.poll(keyDown: true), "once")
+        var already = TriggerToggle(keyDown: false)
+        expect(already.poll(keyDown: true), "opened with the key up (the shortcut): its next press closes it")
+        // Click mode: a clean tap closes it on the way up; a press with another key doesn't.
+        var click = TriggerToggle(keyDown: true)
+        expect(!click.changed(keyDown: false), "the opening press coming up doesn't close it")
+        expect(!click.changed(keyDown: true), "a new press goes down")
+        expect(click.changed(keyDown: false), "and closes it on the way up")
+        var shiftTab = TriggerToggle(keyDown: false)
+        _ = shiftTab.changed(keyDown: true)
+        shiftTab.otherKey()
+        expect(!shiftTab.changed(keyDown: false), "Shift-Tab isn't a tap")
+        expect(!shiftTab.changed(keyDown: true) && shiftTab.changed(keyDown: false), "but the next clean tap is")
+        // From drag mode into click mode (a hold let go): the key state carries over.
+        var hold = TriggerToggle(keyDown: true)
+        _ = hold.poll(keyDown: true)
+        expect(!hold.changed(keyDown: false), "let go of a hold, the opening press coming up doesn't close it")
+        expect(!hold.changed(keyDown: true) && hold.changed(keyDown: false), "a tap after it does")
+    }
+
+    // MARK: More: a + that turns into ×
+
+    private static func moreIcon() {
+        var e = BloomEvents()
+        e.openedAt = 0
+        expect(Motion.moreTurn(e, now: 1) == 0, "at rest, More is a +")
+        e.trayAt = 2
+        let turning = stride(from: 0.0, through: 0.4, by: 0.005).map { Motion.moreTurn(e, now: 2 + $0) }
+        expect(turning.first == 0 && zip(turning, turning.dropFirst()).allSatisfy { $0 <= $1 + 1e-9 } && turning.max()! <= 1,
+               "the tray opening turns it towards ×, never past")
+        expect(abs(Motion.moreTurn(e, now: 2 + Motion.More.turn) - 1) < 1e-9 && Motion.More.turn == 0.18 && Motion.More.angle == 45,
+               "a 45° turn, × in 180 ms")
+        expect(Motion.moreTurn(e, now: 2 + 0.09) > 0.5, "eased: most of the turn early")
+        e.trayClosingAt = 3
+        expect(abs(Motion.moreTurn(e, now: 3) - 1) < 1e-9 && Motion.moreTurn(e, now: 3 + Motion.More.back + 0.001) == 0 && Motion.More.back < Motion.More.turn,
+               "closing turns it back to + in 150 ms")
+        e.trayClosingAt = 2.05
+        let from = Motion.moreTurn(e, now: 2.05)
+        expect(from > 0 && from < 1 && Motion.moreTurn(e, now: 2.06) < from, "closed mid-turn, it turns back from where it was")
+        var r = BloomEvents()
+        r.reduce = true
+        r.trayAt = 5
+        expect(abs(Motion.moreTurn(r, now: 5 + Motion.fade / 2) - 0.5) < 0.01, "reduce motion: + cross-fades into ×")
+        expect(Motion.busyUntil(e, count: 6) >= 2.05 + Motion.More.back, "the frame clock runs through the turn")
     }
 
     private static func hold() {

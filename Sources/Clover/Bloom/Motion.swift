@@ -127,6 +127,24 @@ enum Motion {
         static let close: TimeInterval = 0.12
     }
 
+    // MARK: More
+
+    /// The More slot is a + that turns into × while its tray is open (Irfan, 22 Oct 2026).
+    enum More {
+        /// Resting on More this long opens its tray, in drag and in click mode, so a sweep
+        /// across it doesn't pop the tray.
+        static let intent: TimeInterval = 0.12
+        /// The + turns 45° into × as the tray opens, and back as it closes.
+        static let turn: TimeInterval = 0.18
+        static let back: TimeInterval = 0.15
+        static let angle: Double = 45
+        /// Off More and off the tray this long, the tray closes; long enough to cross the
+        /// gap between them.
+        static let leaveGrace: TimeInterval = 0.3
+        /// The + itself.
+        static let iconSize: CGFloat = 23
+    }
+
     // MARK: Press: the glass button
 
     /// Pressing a leaf, chip or pill reacts like a macOS 26 glass button: it swells with a
@@ -654,6 +672,21 @@ extension Motion {
         return Look(scale: lerp(Tray.pillBornScale, 1, p), blur: lerp(Tray.pillBornBlur, 0, p), opacity: clamp(raw * 3))
     }
 
+    // MARK: More
+
+    /// How far the More slot's + has turned into ×, 0 to 1: it turns as the tray opens
+    /// and back as it closes, from wherever it was. With reduce motion the same amount
+    /// cross-fades + into × instead.
+    static func moreTurn(_ e: BloomEvents, now: TimeInterval) -> Double {
+        guard e.trayAt.isFinite else { return 0 }
+        func opening(_ t: TimeInterval) -> Double {
+            e.reduce ? phase(t, e.trayAt, fade) : settle(phase(t, e.trayAt, More.turn))
+        }
+        guard let closing = e.trayClosingAt else { return opening(now) }
+        let from = opening(closing)
+        return from * (1 - (e.reduce ? phase(now, closing, fade) : settle(phase(now, closing, More.back))))
+    }
+
     // MARK: Press
 
     /// A damped spring from `from` to `to`, starting with `velocity`, `t` seconds in: its
@@ -873,6 +906,7 @@ extension Motion {
         }
         end = max(end, (e.drop?.at ?? -.infinity) + Drop.handoff)
         if let p = e.press { end = max(end, pressBusyUntil(p)) }
+        end = max(end, e.trayAt + More.turn, (e.trayClosingAt ?? -.infinity) + More.back)
         if Cancel.animated { end = max(end, (e.cancelAt ?? -.infinity) + Cancel.duration) }
         return end + (e.reduce ? fade : 0)
     }

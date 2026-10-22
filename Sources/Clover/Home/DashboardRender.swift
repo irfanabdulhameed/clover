@@ -22,7 +22,7 @@ enum DashboardRender {
         var motion = MotionPreference.system
         var haptics = true
         var sound = true
-        var leafStyle = LeafStyle.clover
+        var tint = GlassTint.none
         var login = LoginState()
         var items: [RecentItem] = []
         var engines: [EngineInfo] = []
@@ -67,6 +67,8 @@ enum DashboardRender {
             Scene(name: "leaves-images", section: .leaves, layouts: [.image: imageLayout],
                   forced: DashboardForced(leafKey: .image, leafSelected: "png", leafHovered: "webp")),
             Scene(name: "leaves-default", section: .leaves, forced: DashboardForced(leafKey: .image)),
+            Scene(name: "leaves-tinted", section: .leaves, tint: .preset(.blue),
+                  forced: DashboardForced(leafKey: .image, leafSelected: "jpg")),
             Scene(name: "leaves-archives", section: .leaves, forced: DashboardForced(leafKey: .archive, leafSelected: "zip")),
             Scene(name: "leaves-video", section: .leaves, forced: DashboardForced(leafKey: .video)),
             Scene(name: "leaves-lastone", section: .leaves,
@@ -89,8 +91,9 @@ enum DashboardRender {
             Scene(name: "shortcuts-recording", section: .shortcuts, trigger: .option, forced: DashboardForced(recording: true)),
             Scene(name: "shortcuts-rejected", section: .shortcuts, forced: DashboardForced(recording: true, rejected: true), bothSchemes: false),
             Scene(name: "shortcuts-off", section: .shortcuts, trigger: .control, hold: false, hotkey: nil),
-            Scene(name: "feel", section: .feel),
-            Scene(name: "feel-custom", section: .feel, motion: .reduced, haptics: false, sound: false, leafStyle: .clear),
+            Scene(name: "feel", section: .feel, tint: .preset(.blue)),
+            Scene(name: "feel-custom", section: .feel, motion: .reduced, haptics: false, sound: false, tint: .custom(0x4AA3A2)),
+            Scene(name: "feel-none", section: .feel, tint: .none, bothSchemes: false),
             Scene(name: "feel-min", section: .feel, size: DashboardSize.minimum, bothSchemes: false),
             Scene(name: "history", section: .history, items: items),
             Scene(name: "history-search", section: .history, items: items, forced: DashboardForced(query: "img")),
@@ -154,7 +157,7 @@ enum DashboardRender {
         @State private var motion: MotionPreference
         @State private var haptics: Bool
         @State private var sound: Bool
-        @State private var leafStyle: LeafStyle
+        @State private var tint: GlassTint
 
         init(scene: Scene, catalog: Catalog) {
             self.scene = scene
@@ -170,7 +173,7 @@ enum DashboardRender {
             _motion = State(initialValue: scene.motion)
             _haptics = State(initialValue: scene.haptics)
             _sound = State(initialValue: scene.sound)
-            _leafStyle = State(initialValue: scene.leafStyle)
+            _tint = State(initialValue: scene.tint)
         }
 
         var body: some View {
@@ -179,9 +182,11 @@ enum DashboardRender {
                 data: DashboardData(
                     catalog: catalog, layouts: $layouts, conversion: $conversion, outputFolder: $folder,
                     revealAfterConverting: $reveal, triggerKey: $trigger, holdToOpen: $hold, hotkey: $hotkey,
-                    motion: $motion, haptics: $haptics, completionSound: $sound, leafStyle: $leafStyle,
+                    motion: $motion, haptics: $haptics, completionSound: $sound, glassTint: $tint,
                     login: scene.login, items: scene.items, engines: scene.engines, forced: scene.forced),
                 actions: .none)
+            // Glass doesn't draw in a captured window: the clover preview uses its frosted stand-in.
+            .environment(\.bloomSnapshot, true)
         }
     }
 

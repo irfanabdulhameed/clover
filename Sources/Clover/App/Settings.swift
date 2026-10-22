@@ -22,7 +22,89 @@ enum TriggerKey: String, CaseIterable, Identifiable {
     }
 }
 
-/// How the clover's glass is coloured.
+/// The tint of the clover's glass: none, one of the preset colours, or any colour.
+/// Stored as "none", a preset's name, or "#RRGGBB".
+enum GlassTint: Equatable, Hashable {
+    case none
+    case preset(Preset)
+    /// An sRGB colour, 0xRRGGBB, with no opacity of its own.
+    case custom(UInt32)
+
+    enum Preset: String, CaseIterable, Identifiable {
+        case clover, blue, purple, pink, orange, graphite
+
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .clover: "Clover green"
+            case .blue: "Blue"
+            case .purple: "Purple"
+            case .pink: "Pink"
+            case .orange: "Orange"
+            case .graphite: "Graphite"
+            }
+        }
+        /// The colour, 0xRRGGBB.
+        var rgb: UInt32 {
+            switch self {
+            case .clover: 0x3FC779
+            case .blue: 0x3D8BFF
+            case .purple: 0x9B6BFF
+            case .pink: 0xFF5FA2
+            case .orange: 0xFF9F2E
+            case .graphite: 0x8E8E93
+            }
+        }
+    }
+
+    /// The colour, 0xRRGGBB, or nil for clear glass.
+    var rgb: UInt32? {
+        switch self {
+        case .none: nil
+        case .preset(let preset): preset.rgb
+        case .custom(let rgb): rgb & 0xFFFFFF
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .none: "None"
+        case .preset(let preset): preset.title
+        case .custom(let rgb): String(format: "Custom #%06X", rgb & 0xFFFFFF)
+        }
+    }
+
+    /// How it is kept in UserDefaults.
+    var stored: String {
+        switch self {
+        case .none: "none"
+        case .preset(let preset): preset.rawValue
+        case .custom(let rgb): String(format: "#%06X", rgb & 0xFFFFFF)
+        }
+    }
+
+    /// Reads a stored tint; nil when there is none or it can't be read.
+    init?(stored: String?) {
+        guard let stored else { return nil }
+        if stored == "none" {
+            self = .none
+        } else if let preset = Preset(rawValue: stored) {
+            self = .preset(preset)
+        } else if stored.hasPrefix("#"), stored.count == 7, let rgb = UInt32(stored.dropFirst(), radix: 16) {
+            self = .custom(rgb)
+        } else {
+            return nil
+        }
+    }
+
+    /// The tint for someone who set the old two-way leaf colour: clover green, or none.
+    static func migrated(fromLeafStyle style: String?) -> GlassTint {
+        style == LeafStyle.clover.rawValue ? .preset(.clover) : .none
+    }
+}
+
+/// How the clover's glass was coloured before `GlassTint`. Still read by the result chip,
+/// which is green only with the clover-green tint.
 enum LeafStyle: String, CaseIterable, Identifiable {
     /// Glass with a soft clover-green tint.
     case clover
@@ -92,9 +174,13 @@ final class Settings: ObservableObject {
         didSet { defaults.set(revealAfterConverting, forKey: "revealAfterConverting") }
     }
 
-    @Published var leafStyle: LeafStyle {
-        didSet { defaults.set(leafStyle.rawValue, forKey: "leafStyle") }
+    /// The tint of the clover's glass and the More tray.
+    @Published var glassTint: GlassTint {
+        didSet { defaults.set(glassTint.stored, forKey: "glassTint") }
     }
+
+    /// The old two-way leaf colour, from the tint: clover green or clear.
+    var leafStyle: LeafStyle { glassTint == .preset(.clover) ? .clover : .clear }
 
     @Published var motion: MotionPreference {
         didSet { defaults.set(motion.rawValue, forKey: "motion") }
@@ -135,7 +221,9 @@ final class Settings: ObservableObject {
         holdToOpen = defaults.object(forKey: "holdToOpen") as? Bool ?? true
         hotkey = defaults.object(forKey: "hotkey") == nil ? .standard : Settings.load(Hotkey.self, "hotkey")
         revealAfterConverting = defaults.bool(forKey: "revealAfterConverting")
-        leafStyle = LeafStyle(rawValue: defaults.string(forKey: "leafStyle") ?? "") ?? .clear
+        // Someone who chose the old leaf colour keeps it: clover green stays green, clear is none.
+        glassTint = GlassTint(stored: defaults.string(forKey: "glassTint"))
+            ?? GlassTint.migrated(fromLeafStyle: defaults.string(forKey: "leafStyle"))
         motion = MotionPreference(rawValue: defaults.string(forKey: "motion") ?? "") ?? .system
         haptics = defaults.object(forKey: "haptics") as? Bool ?? true
         completionSound = defaults.object(forKey: "completionSound") as? Bool ?? true
