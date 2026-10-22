@@ -1,108 +1,97 @@
 import AppKit
 import SwiftUI
 
-// Liquid Glass is in the macOS 26 SDK. The SDK 15 build that draws pictures for checking
-// (SDKROOT=.../MacOSX15.sdk) does not have it, and live glass never shows in pictures anyway.
-// FoundationModels arrived with the same SDK, so its presence tells the two apart.
-// (`Glass` in this app is Clover's frosted look; the system's is `SwiftUI.Glass`.)
+// The chip is frosted, not Liquid Glass (Irfan, 22 Oct 2026): clear glass let busy windows
+// show through its words. The frosted look is the same in the app and in the pictures drawn
+// for checking, except that the pictures can't show the system's blur and use a flat stand-in.
 
-/// Holds all the chips of a stack, so the system's glass can blend between them as they
-/// move. Before macOS 26 it holds them and does nothing else.
+/// Holds all the chips of a stack. (It once let the system's glass blend between them; that
+/// container drew the merged glass over the chips' contents, so it holds them and nothing else.)
 struct ChipGlassContainer<Content: View>: View {
     @ViewBuilder let content: () -> Content
-    @Environment(\.bloomSnapshot) private var snapshot
 
     var body: some View {
-        #if canImport(FoundationModels)
-        // No glass container: it drew the merged glass over the chips' contents, which
-        // came out blurred. Each chip's glass is applied to its own content instead.
         content()
-        #else
-        content()
-        #endif
     }
 }
 
-/// The chip's body: a Liquid Glass capsule on macOS 26, the frosted look before it.
-/// `clover` tints it with the clover's green, as the clover's own glass is; otherwise it is clear.
+/// The chip's body: frosted glass in its pill shape. The system's blur of what is behind the
+/// window, a light veil so the words always read, a lit rim and a soft shadow. `clover`
+/// tints it with the clover's green, as the clover's own glass is; otherwise it is clear.
 struct ChipGlassBackground: View {
     var cornerRadius: CGFloat
     var clover: Bool
     @Environment(\.bloomSnapshot) private var snapshot
     @Environment(\.colorScheme) private var scheme
 
-    /// True when this Mac and this build have Liquid Glass.
-    static var isLiquid: Bool {
-        #if canImport(FoundationModels)
-        if #available(macOS 26, *) { return true }
-        #endif
-        return false
-    }
+    /// The system material under the veil: frosted and solid enough to read on, in both modes.
+    static let material = NSVisualEffectView.Material.popover
 
     var body: some View {
-        #if canImport(FoundationModels)
-        if #available(macOS 26, *), !snapshot {
-            let regular = SwiftUI.Glass.regular
-            Color.clear
-                .glassEffect(clover ? regular.tint(BloomStyle.green(scheme).opacity(0.28)) : regular, in: Capsule())
-        } else {
-            frosted
+        let dark = scheme == .dark
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .circular)
+        ZStack {
+            if snapshot {
+                shape.fill(dark ? Color(white: 0.17).opacity(0.94) : Color(white: 0.96).opacity(0.94))
+            } else {
+                VisualEffectBlur(cornerRadius: cornerRadius, material: ChipGlassBackground.material)
+                shape.fill(dark ? Color.black.opacity(0.12) : Color.white.opacity(0.30))
+            }
+            if clover { shape.fill(BloomStyle.green(scheme).opacity(0.10)) }
+            shape.strokeBorder(rim(dark), lineWidth: 0.75)
         }
-        #else
-        frosted
-        #endif
+        .background {
+            // A close shadow for the edge and a wide, soft one so the chip floats.
+            shape.fill(Color.black.opacity(dark ? 0.32 : 0.16)).blur(radius: 5).offset(y: 2.5)
+            shape.fill(Color.black.opacity(dark ? 0.24 : 0.10)).blur(radius: 12).offset(y: 6)
+        }
     }
 
-    private var frosted: some View {
-        Glass(cornerRadius: cornerRadius, tint: clover ? BloomStyle.green(scheme).opacity(0.10) : nil, bright: true)
+    private func rim(_ dark: Bool) -> LinearGradient {
+        let top = Color.white.opacity(dark ? 0.42 : 0.95)
+        let bottom = dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10)
+        return LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)
     }
 }
 
-/// Puts the chip's glass behind its content: on macOS 26 applied to the content itself, so
-/// the picture and words always draw on top of the glass.
+/// Puts the chip's frosted glass behind its content.
 struct ChipGlassModifier: ViewModifier {
     var cornerRadius: CGFloat
     var clover: Bool
-    @Environment(\.bloomSnapshot) private var snapshot
-    @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        #if canImport(FoundationModels)
-        if #available(macOS 26, *), !snapshot {
-            let regular = SwiftUI.Glass.regular
-            content.glassEffect(clover ? regular.tint(BloomStyle.green(scheme).opacity(0.28)) : regular,
-                                in: RoundedRectangle(cornerRadius: cornerRadius, style: .circular))
-        } else {
-            content.background(ChipGlassBackground(cornerRadius: cornerRadius, clover: clover))
-        }
-        #else
         content.background(ChipGlassBackground(cornerRadius: cornerRadius, clover: clover))
-        #endif
     }
 }
 
-/// The progress ring: 3 pt, white at 90 % over a track at 20 %. The same ring the clover
+/// The progress ring: 3 pt, white at 90 % over a track at 20 % in Dark; in Light, dark at
+/// 72 % over a track at 12 %, as white vanished on the frosted chip. The same ring the clover
 /// leaves at its hub, so the chip can pick it up.
 struct ChipRing: View {
     var progress: Double
     var diameter: CGFloat
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         let inset = ChipMotion.ringLineWidth / 2
+        let dark = scheme == .dark
+        let ink = dark ? Color.white : Color.black
         ZStack {
             Circle()
                 .inset(by: inset)
-                .stroke(Color.white.opacity(ChipMotion.trackOpacity), lineWidth: ChipMotion.ringLineWidth)
+                .stroke(ink.opacity(dark ? ChipMotion.trackOpacity : ChipMotion.lightTrackOpacity),
+                        lineWidth: ChipMotion.ringLineWidth)
             Circle()
                 .inset(by: inset)
                 .trim(from: 0, to: max(0.001, min(progress, 1)))
-                .stroke(Color.white.opacity(ChipMotion.ringOpacity),
+                .stroke(ink.opacity(dark ? ChipMotion.ringOpacity : ChipMotion.lightRingOpacity),
                         style: StrokeStyle(lineWidth: ChipMotion.ringLineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: diameter, height: diameter)
-        // A hairline of shadow keeps a white ring readable over light glass.
-        .shadow(color: .black.opacity(0.22), radius: 1.2, y: 0.5)
+        // A hairline of shadow keeps the white ring readable over light parts of the glass.
+        .shadow(color: .black.opacity(dark ? 0.22 : 0), radius: 1.2, y: 0.5)
     }
 }
 

@@ -203,7 +203,7 @@ enum ChipRender {
         check(ChipMotion.out(0.30, over: 0.30) == 1 && ChipMotion.out(0, over: 0.30) == 0, "ends at 0 and 1")
         check(times(0, 0.4).map { ChipMotion.out($0, over: 0.3) }.adjacentPairs().allSatisfy { $0 <= $1 && $1 <= 1 }, "the curve only rises and never passes 1")
 
-        // Ring entrance: width only grows, to 300 and no further; the ring only shrinks; nothing scales.
+        // Ring entrance: width only grows, to the chip's width and no further; the ring only shrinks; nothing scales.
         let ringed = ChipPlayback(reduced: false, ringStart: CGSize(width: -70, height: 14))
         let grow = times(ringed.appearAt, ringed.appearAt + 0.5).map { ringed.values(at: $0) }
         check(grow.map(\.width).adjacentPairs().allSatisfy { $0 <= $1 + 0.001 }, "the chip only widens")

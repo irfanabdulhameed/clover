@@ -191,6 +191,10 @@ final class ResultChipState: ObservableObject {
     @Published var running: ChipDisplay
     @Published var thumbnail: NSImage?
     @Published var outputs: [URL] = []
+    /// True for a moment after Copy: its button shows a checkmark.
+    @Published var copied = false
+    /// How many times Copy was pressed, so each press pops the checkmark.
+    @Published var copies = 0
 
     init(display: ChipDisplay) {
         self.display = display
@@ -202,6 +206,8 @@ final class ResultChipState: ObservableObject {
 struct ChipActions {
     var cancel: () -> Void = {}
     var undo: () -> Void = {}
+    /// Puts the result's files on the clipboard.
+    var copy: () -> Void = {}
     var dismiss: () -> Void = {}
     var reveal: () -> Void = {}
     /// The pointer came in or went out.
@@ -222,6 +228,22 @@ struct ResultChipView: View {
     var clover = false
 
     static let size = ChipMotion.chipSize
+    /// Space at each end of the chip, between the ring and the words, and before the buttons.
+    static let padding: CGFloat = 14
+    static let slotGap: CGFloat = 12
+    static let buttonsGap: CGFloat = 14
+    /// A round button's side, and the space between buttons.
+    static let buttonSide: CGFloat = 26
+    static let buttonSpacing: CGFloat = 8
+    static let undoFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    static let undoPadding: CGFloat = 12
+
+    /// The width left for a finished chip's name and size, beside Undo, Copy and ✕.
+    static var titleRoom: CGFloat {
+        let undo = BloomStyle.textWidth("Undo", font: undoFont) + undoPadding * 2
+        let buttons = undo + buttonSpacing + buttonSide + buttonSpacing + buttonSide
+        return size.width - padding * 2 - ChipMotion.slot - slotGap - buttonsGap - buttons
+    }
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.bloomSnapshot) private var snapshot
@@ -229,7 +251,9 @@ struct ResultChipView: View {
     var body: some View {
         let v = values
         let d = v.showsRunning ? state.running : state.display
-        let corner: CGFloat = ChipGlassBackground.isLiquid && !snapshot ? ResultChipView.size.height / 2 : v.cornerRadius
+        // A pill, from the moment it leaves the ring: half its height, or half its width
+        // while it is narrower. Whole points, so the blur's mask is made only a few times.
+        let corner = min(ResultChipView.size.height / 2, (v.width / 2).rounded())
         let shape = RoundedRectangle(cornerRadius: corner, style: .circular)
         ZStack {
             if let age = v.ripple {
@@ -253,8 +277,8 @@ struct ResultChipView: View {
     }
 
     private func content(_ d: ChipDisplay, _ v: ChipValues) -> some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 12) {
+        HStack(spacing: ResultChipView.buttonsGap) {
+            HStack(spacing: ResultChipView.slotGap) {
                 leading(d, v)
                     .frame(width: ChipMotion.slot, height: ChipMotion.slot)
                 VStack(alignment: .leading, spacing: 3) {
@@ -281,11 +305,10 @@ struct ResultChipView: View {
                     DragOutArea(urls: state.outputs, image: state.thumbnail, onClick: actions.reveal, onPress: actions.focus)
                 }
             }
-            trailing(d)
+            trailing(d, v)
                 .opacity(v.controlsOpacity)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 14)
+        .padding(.horizontal, ResultChipView.padding)
     }
 
     @ViewBuilder
@@ -342,12 +365,22 @@ struct ResultChipView: View {
     }
 
     @ViewBuilder
-    private func trailing(_ d: ChipDisplay) -> some View {
-        HStack(spacing: 8) {
+    private func trailing(_ d: ChipDisplay, _ v: ChipValues) -> some View {
+        HStack(spacing: ResultChipView.buttonSpacing) {
             if d.canUndo {
                 Button("Undo") { actions.focus(); actions.undo() }
                     .buttonStyle(ChipTextButtonStyle())
                     .help("Move the result to the Trash (⌘Z)")
+            }
+            if d.canUndo && !state.outputs.isEmpty {
+                // Copies the files, to paste in Finder, Mail or a chat. A checkmark answers
+                // for a moment: a one-frame flip and a small pop, as every state change.
+                Button { actions.focus(); actions.copy() } label: {
+                    CopyGlyph(copied: state.copied, copies: state.copies, reduced: v.reduced)
+                }
+                .buttonStyle(ChipIconButtonStyle())
+                .help(state.copied ? "Copied" : (state.outputs.count > 1 ? "Copy the files" : "Copy the file"))
+                .accessibilityLabel(state.copied ? "Copied" : "Copy")
             }
             if d.canCancel {
                 Button { actions.focus(); actions.cancel() } label: { Image(systemName: "xmark") }
@@ -415,6 +448,36 @@ struct ChipHoverTracker: NSViewRepresentable {
     }
 }
 
+/// The Copy button's icon: two sheets, or a green checkmark for a moment after a copy. The
+/// checkmark comes in one frame at 108 % and settles, like the chip's own result.
+struct CopyGlyph: View {
+    let copied: Bool
+    let copies: Int
+    var reduced = false
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Group {
+            if copied {
+                Image(systemName: "checkmark").foregroundStyle(BloomStyle.green(scheme))
+            } else {
+                Image(systemName: "doc.on.doc")
+            }
+        }
+        .keyframeAnimator(initialValue: CGFloat(1), trigger: copies) { content, scale in
+            content.scaleEffect(scale)
+        } keyframes: { _ in
+            KeyframeTrack {
+                MoveKeyframe(reduced ? 1 : ChipMotion.popScale)
+                LinearKeyframe(1, duration: ChipMotion.popDuration,
+                               timingCurve: .bezier(startControlPoint: UnitPoint(x: 0.16, y: 1),
+                                                    endControlPoint: UnitPoint(x: 0.3, y: 1)))
+            }
+        }
+    }
+}
+
 /// A round icon button: resting, hovered, pressed.
 struct ChipIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -429,7 +492,7 @@ struct ChipIconButtonStyle: ButtonStyle {
             configuration.label
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
+                .frame(width: ResultChipView.buttonSide, height: ResultChipView.buttonSide)
                 .background(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.18 : (hovering ? 0.10 : 0.05))))
                 .contentShape(Circle())
                 .onHover { hovering = $0 }
@@ -449,10 +512,10 @@ struct ChipTextButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.system(size: 12, weight: .semibold))
+                .font(Font(ResultChipView.undoFont))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .frame(height: 26)
+                .padding(.horizontal, ResultChipView.undoPadding)
+                .frame(height: ResultChipView.buttonSide)
                 .background(Capsule().fill(Color.primary.opacity(configuration.isPressed ? 0.20 : (hovering ? 0.13 : 0.07))))
                 .contentShape(Capsule())
                 .onHover { hovering = $0 }

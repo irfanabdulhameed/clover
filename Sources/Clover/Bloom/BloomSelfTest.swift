@@ -422,7 +422,17 @@ enum BloomSelfTest {
     }
 
     private static func chipStack() {
-        let size = CGSize(width: 300, height: 56)
+        let size = ResultChipView.size
+        expect(size.width == 400 && size.height == 68, "the chip is 400 x 68: \(size)")
+        // A finished chip keeps room for its name beside Undo, Copy and ✕.
+        expect(ResultChipView.titleRoom >= 170, "room for the name beside the buttons: \(ResultChipView.titleRoom)")
+        // Its window, shadow room included, fits the smallest Mac screen in use.
+        expect(size.width + ChipPanel.margin * 2 <= 1280 - 24, "the chip's window fits a 1280 pt screen")
+        let small = CGRect(x: 0, y: 0, width: 1280, height: 775)
+        for x in [0.0, 200, 640, 1100, 1280] {
+            let frame = ChipStackLayout.frames(count: 1, size: size, origin: CGPoint(x: x, y: 700), visible: small)[0]
+            expect(small.insetBy(dx: 12, dy: 12).contains(frame), "a chip from x \(x) stays on a small screen: \(frame)")
+        }
         let visible = CGRect(x: 0, y: 0, width: 1440, height: 875)
         let frames = ChipStackLayout.frames(count: 3, size: size, origin: CGPoint(x: 720, y: 500), visible: visible)
         expect(frames.count == 3, "three chips")

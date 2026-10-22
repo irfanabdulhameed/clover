@@ -8,9 +8,8 @@ import CloverCore
 ///
 /// It appears where the clover was, as the ring the clover left, or at the top right under
 /// the menu bar, and several jobs stack in a column. All the chips of a column live in one
-/// window, so the system's glass can blend between them. A job that runs long sends the
-/// column up under the menu bar icon. It never takes focus by itself: it becomes key
-/// only when clicked, so ⌘Z and Esc work then.
+/// window. A job that runs long sends the column up under the menu bar icon. It never takes
+/// focus by itself: it becomes key only when clicked, so ⌘Z, ⌘C and Esc work then.
 @MainActor
 final class ResultHUD {
     private let model: AppModel
@@ -22,7 +21,7 @@ final class ResultHUD {
     private var screen: NSScreen?
     /// The column has moved up under the menu bar icon.
     private var docked = false
-    /// The chip that was clicked last: ⌘Z and Esc are about it.
+    /// The chip that was clicked last: ⌘Z, ⌘C and Esc are about it.
     private weak var focused: ResultChip?
     private var shrinkWork: DispatchWorkItem?
     /// Older finished chips give way beyond this many.
@@ -84,6 +83,10 @@ final class ResultHUD {
         (focused ?? chips.last { $0.canUndo })?.undo()
     }
 
+    private func copyFocused() {
+        (focused ?? chips.last { $0.canCopy })?.copy()
+    }
+
     private func dismissFocused() {
         (focused ?? chips.last)?.dismiss()
     }
@@ -131,6 +134,7 @@ final class ResultHUD {
         hosting.sizingOptions = []
         panel.contentView = hosting
         panel.onUndo = { [weak self] in self?.undoFocused() }
+        panel.onCopy = { [weak self] in self?.copyFocused() }
         panel.onDismiss = { [weak self] in self?.dismissFocused() }
         self.panel = panel
         return panel
@@ -303,6 +307,8 @@ final class ResultChip: Identifiable {
     private weak var hud: ResultHUD?
     private var observer: AnyCancellable?
     private var hideWork: DispatchWorkItem?
+    /// Turns the Copy button's checkmark back into its icon.
+    private var copyWork: DispatchWorkItem?
     private var lastKind: ChipDisplay.Kind?
     private var hovering = false
     private var hideWhenLeft = false
@@ -315,6 +321,7 @@ final class ResultChip: Identifiable {
 
     let id: UUID
     var canUndo: Bool { state.display.canUndo }
+    var canCopy: Bool { state.display.canUndo && !state.outputs.isEmpty }
 
     /// The longest the loader waits for the result's picture.
     static let pictureWait: TimeInterval = 1.0
@@ -334,6 +341,7 @@ final class ResultChip: Identifiable {
 
         actions.cancel = { [weak self] in self?.cancel() }
         actions.undo = { [weak self] in self?.undo() }
+        actions.copy = { [weak self] in self?.copy() }
         actions.dismiss = { [weak self] in self?.dismiss() }
         actions.reveal = { [weak self] in self?.reveal() }
         actions.hover = { [weak self] in self?.hoverChanged($0) }
@@ -353,6 +361,7 @@ final class ResultChip: Identifiable {
 
     func close() {
         hideWork?.cancel()
+        copyWork?.cancel()
         observer = nil
     }
 
@@ -465,6 +474,23 @@ final class ResultChip: Identifiable {
         }
     }
 
+    /// Puts the result's files on the clipboard as files, so they paste into Finder, Mail or
+    /// a chat, and shows a checkmark on the Copy button for a moment.
+    func copy() {
+        guard canCopy else { return }
+        let existing = job.outputs.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !existing.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects(existing.map { $0 as NSURL })
+        state.copied = true
+        state.copies += 1
+        copyWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.state.copied = false } }
+        copyWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + ChipMotion.copiedHold, execute: work)
+    }
+
     /// Fades, blurs and shrinks away, then leaves the column.
     func dismiss() {
         guard !isLeaving else { return }
@@ -501,6 +527,7 @@ final class ChipPanel: NSPanel {
     static let margin: CGFloat = 30
 
     var onUndo: (() -> Void)?
+    var onCopy: (() -> Void)?
     var onDismiss: (() -> Void)?
 
     init() {
@@ -543,6 +570,10 @@ final class ChipPanel: NSPanel {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "z" {
             onUndo?()
+            return true
+        }
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "c" {
+            onCopy?()
             return true
         }
         return super.performKeyEquivalent(with: event)

@@ -9,7 +9,8 @@ import Foundation
 enum ChipMotion {
     // MARK: Sizes
 
-    static let chipSize = CGSize(width: 340, height: 68)
+    /// 400 pt wide, for room around the name beside Undo, Copy and ✕ (Irfan, 22 Oct 2026).
+    static let chipSize = CGSize(width: 400, height: 68)
     /// The slot at the chip's leading edge that holds the ring, and later the thumbnail.
     static let slot: CGFloat = 44
     /// The ring the clover leaves at its hub, so the chip can pick it up.
@@ -17,6 +18,9 @@ enum ChipMotion {
     static let ringLineWidth: CGFloat = 3
     static let ringOpacity = 0.9
     static let trackOpacity = 0.2
+    /// In Light the ring is dark, so it reads on the frosted chip and the hub's light glass.
+    static let lightRingOpacity = 0.72
+    static let lightTrackOpacity = 0.12
 
     // MARK: Entrance
 
@@ -67,6 +71,9 @@ enum ChipMotion {
     static let shakeAmplitude: CGFloat = 8
     static let shakeDuration = 0.30
 
+    /// After Copy, its button shows a checkmark this long.
+    static let copiedHold = 1.2
+
     static let exitDuration = 0.16
     static let exitBlur: CGFloat = 8
     static let exitScale: CGFloat = 0.92
@@ -116,7 +123,6 @@ struct ChipValues: Equatable {
     var blur: CGFloat = 0
     var scale: CGFloat = 1
     var width: CGFloat = ChipMotion.chipSize.width
-    var cornerRadius: CGFloat = 16
     /// The chip's centre from its place in the stack: the clover's ring while it grows, and the shake.
     var offset = CGSize.zero
     /// The ring's outer diameter. It starts at the clover's 56 pt.
@@ -282,7 +288,6 @@ struct ChipPlayback {
             v.width = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.chipSize.width, e)
             v.offset = CGSize(width: start.width * CGFloat(1 - e), height: start.height * CGFloat(1 - e))
             v.ringDiameter = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.slot, e)
-            v.cornerRadius = ChipMotion.lerp(28, 16, e)
             born(u - ChipMotion.textStart)
             if ChipMotion.textAnimated, u < ChipMotion.textStart { words = 0 }
         } else {
@@ -290,7 +295,6 @@ struct ChipPlayback {
             v.opacity = ChipMotion.out(u, over: ChipMotion.bornDuration * 0.4)
             v.blur = ChipMotion.bornBlur * CGFloat(1 - e)
             v.scale = 1 + (ChipMotion.bornScale - 1) * CGFloat(1 - e)
-            v.cornerRadius = 16
             born(u - 0.06)
             if ChipMotion.textAnimated, u < 0.06 { words = 0 }
         }

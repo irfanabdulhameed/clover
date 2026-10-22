@@ -387,10 +387,19 @@ enum BloomDebug {
             ("undone", JobSnapshot(phase: .undone, title: "Convert to JPG", formatName: "JPG", family: .image,
                                    inputNames: one, outputNames: ["photo.jpg"])),
         ]
-        let states: [(String, ResultChipState)] = snapshots.map { name, snapshot in
+        var states: [(String, ResultChipState)] = snapshots.map { name, snapshot in
             let state = ResultChipState(display: ChipDisplay(snapshot))
             state.thumbnail = thumbnail
+            state.outputs = snapshot.outputNames.map { URL(fileURLWithPath: "/tmp/" + $0) }
             return (name, state)
+        }
+        // Just after Copy: the checkmark.
+        if let done = snapshots.first(where: { $0.0 == "done" }) {
+            let state = ResultChipState(display: ChipDisplay(done.1))
+            state.thumbnail = thumbnail
+            state.outputs = [URL(fileURLWithPath: "/tmp/photo.jpg")]
+            state.copied = true
+            states.insert(("done, copied", state), at: 4)
         }
         let size = ResultChipView.size
         let sheet = HStack(spacing: 0) {
