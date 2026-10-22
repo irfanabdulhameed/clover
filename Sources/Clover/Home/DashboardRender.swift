@@ -63,20 +63,31 @@ enum DashboardRender {
         replacing.onConflict = .replace
 
         let imageLayout = LeafLayout(order: ["png", "jpg", "webp", "heic"], hidden: ["bmp", "ico"], defaultOptions: ["webp": "small"])
-        let scenes: [Scene] = [
-            Scene(name: "leaves-images", section: .leaves, layouts: [.image: imageLayout],
-                  forced: DashboardForced(leafKey: .image, leafSelected: "png", leafHovered: "webp")),
-            Scene(name: "leaves-default", section: .leaves, forced: DashboardForced(leafKey: .image)),
+        let pdfLayout = LeafLayout(hidden: ["txt"])
+        let audioLayout = LeafLayout(order: ["m4a", "mp3"], hidden: ["opus", "aiff"])
+        let leafScenes: [Scene] = [DashboardSize.standard, DashboardSize.minimum].flatMap { size -> [Scene] in
+            let suffix = size == DashboardSize.minimum ? "-min" : ""
+            return [
+                Scene(name: "leaves-images" + suffix, section: .leaves, layouts: [.image: imageLayout],
+                      forced: DashboardForced(leafKey: .image, leafSelected: "jpg", leafHovered: "webp", leafShowHidden: true), size: size),
+                Scene(name: "leaves-pdf" + suffix, section: .leaves, layouts: [.pdf: pdfLayout],
+                      forced: DashboardForced(leafKey: .pdf, leafSelected: "png", leafHovered: "pdf-compress", leafShowHidden: true), size: size),
+                Scene(name: "leaves-audio" + suffix, section: .leaves, layouts: [.audio: audioLayout],
+                      forced: DashboardForced(leafKey: .audio, leafSelected: "mp3", leafHovered: "flac", leafShowHidden: true), size: size),
+            ]
+        }
+        let scenes: [Scene] = leafScenes + [
+            Scene(name: "leaves-default", section: .leaves, forced: DashboardForced(leafKey: .image), bothSchemes: false),
             Scene(name: "leaves-tinted", section: .leaves, tint: .preset(.blue),
                   forced: DashboardForced(leafKey: .image, leafSelected: "jpg")),
             Scene(name: "leaves-archives", section: .leaves, forced: DashboardForced(leafKey: .archive, leafSelected: "zip")),
             Scene(name: "leaves-video", section: .leaves, forced: DashboardForced(leafKey: .video)),
             Scene(name: "leaves-lastone", section: .leaves,
                   layouts: [.archive: LeafLayout(hidden: ["zip", "tgz"])],
+                  forced: DashboardForced(leafKey: .archive, leafShowHidden: true), bothSchemes: false),
+            Scene(name: "leaves-allhidden", section: .leaves,
+                  layouts: [.archive: LeafLayout(hidden: ["folder", "zip", "tgz"])],
                   forced: DashboardForced(leafKey: .archive), bothSchemes: false),
-            Scene(name: "leaves-images-min", section: .leaves, layouts: [.image: imageLayout],
-                  forced: DashboardForced(leafKey: .image, leafSelected: "jpg"),
-                  size: DashboardSize.minimum, bothSchemes: false),
             Scene(name: "quality", section: .quality, conversion: custom),
             Scene(name: "output", section: .output),
             Scene(name: "output-custom", section: .output, conversion: replacing,
@@ -245,22 +256,49 @@ enum DashboardRender {
         let catalog = Catalog(router: Registry.makeRouter(tools: tools))
         let images = catalog.allTargets(for: .image)
         let ids = images.map(\.id)
-        let plain = LeafEditing.rows(LeafEditing.ordered(images, layout: LeafLayout()), hidden: [])
+        let plain = LeafEditing.rows(LeafEditing.ordered(images, layout: LeafLayout()), hidden: [], showHidden: false)
         check(images.count > 6, "images have more than six targets")
-        check(plain.firstIndex { $0.targetID == nil } == LeafArranger.maxLeaves - 1, "the divider sits after the fifth leaf")
-        check(plain.compactMap(\.targetID) == ids, "the divider is not a target")
-        let hiddenMost = Set(ids.dropFirst(6))
-        check(LeafEditing.rows(images, hidden: hiddenMost).allSatisfy { $0.targetID != nil }, "six visible or fewer has no divider")
-        let archives = catalog.allTargets(for: .archive)
-        check(archives.count <= 6 && LeafEditing.rows(archives, hidden: []).allSatisfy { $0.targetID != nil }, "archives have no divider")
-        let moved = LeafEditing.moved(plain, from: IndexSet(integer: 2), to: 0)
-        check(moved.first == ids[2] && moved.count == ids.count, "a drag moves a row to the top")
-        let acrossDivider = LeafEditing.moved(plain, from: IndexSet(integer: 0), to: plain.count)
-        check(acrossDivider.last == ids[0], "a drag to the end puts the row last")
+        let numbers = plain.compactMap { row -> Int? in if case .target(_, .clover(let n)) = row { return n }; return nil }
+        check(numbers == [1, 2, 3, 4, 5], "five leaves on the clover, numbered from 12 o'clock: \(numbers)")
+        check(plain.first == .header(.clover, count: 5) && plain.contains(.header(.more, count: ids.count - 5))
+              && plain.last == .header(.hidden, count: 0), "three parts: on the clover, in More, hidden")
+        check(plain.compactMap(\.targetID) == ids, "every target once, in order")
+        let hiddenMost = Set(ids.dropFirst(4))
+        let few = LeafEditing.rows(images, hidden: hiddenMost, showHidden: false)
+        check(!few.contains(.header(.more, count: 0)) && !few.contains { if case .header(.more, _) = $0 { return true }; return false }
+              && few.contains(.note(.allFit(4))), "four visible: no More, and a note that all fit")
+        check(few.last == .header(.hidden, count: hiddenMost.count) && few.compactMap(\.targetID).count == 4, "Hidden is folded by default")
+        let open = LeafEditing.rows(images, hidden: hiddenMost, showHidden: true)
+        check(open.compactMap(\.targetID).count == ids.count && open.contains(.target(images[5], .hidden)), "opened, the hidden rows show")
+        check(LeafEditing.rows(images, hidden: Set(ids), showHidden: false).contains(.note(.allHidden)), "everything hidden: a note")
+        check(LeafEditing.rows(images, hidden: [], showHidden: true).contains(.note(.noneHidden)), "Hidden opened with nothing in it: a note")
+        // Drags: within and across the parts.
+        let third = plain.firstIndex { $0.targetID == ids[2] }!
+        check(LeafEditing.moved(plain, from: IndexSet(integer: third), to: 1, folded: [])?.order.first == ids[2], "a drag moves a row to the top")
+        let toHidden = LeafEditing.moved(plain, from: IndexSet(integer: 1), to: plain.count, folded: [])
+        check(toHidden?.hidden == [ids[0]] && toHidden?.order.last == ids[0], "a drag under Hidden hides the row")
+        let hiddenRow = open.firstIndex { $0.targetID == ids[5] }!
+        let shown = LeafEditing.moved(open, from: IndexSet(integer: hiddenRow), to: 1, folded: [])
+        check(shown?.order.first == ids[5] && shown?.hidden.contains(ids[5]) == false, "a drag out of Hidden shows the row")
+        let keepFolded = LeafEditing.moved(few, from: IndexSet(integer: 1), to: 3, folded: Array(ids.dropFirst(4)))
+        check(keepFolded?.hidden == hiddenMost, "folded hidden rows stay hidden")
+        let one = LeafEditing.rows(images, hidden: Set(ids.dropFirst()), showHidden: false)
+        check(LeafEditing.moved(one, from: IndexSet(integer: 1), to: one.count, folded: Array(ids.dropFirst())) == nil, "the last leaf can't be dragged into Hidden")
+        let places = LeafEditing.places(images, hidden: [ids[6]])
+        check(places[ids[0]] == .clover(1) && places[ids[5]] == .more && places[ids[6]] == .hidden, "places")
         check(LeafEditing.shifted(["a", "b", "c"], "a", by: -1) == ["a", "b", "c"], "the first row can't move up")
         check(LeafEditing.shifted(["a", "b", "c"], "a", by: 1) == ["b", "a", "c"], "move down")
         check(LeafEditing.normalized(LeafLayout(order: ids), defaultOrder: ids) == nil, "default order is stored as nothing")
         check(LeafEditing.normalized(LeafLayout(hidden: ["bmp"]), defaultOrder: ids)?.hidden == ["bmp"], "hidden is kept")
+        // Honest notes.
+        let imageNotes = LeafEditing.notes(catalog, key: .image, targets: images)
+        check(imageNotes["mp4"] == "from GIF" && imageNotes["webm"] == "from GIF", "MP4 and WebM come from GIF: \(imageNotes)")
+        check(imageNotes["jpg"] == nil && imageNotes["png"] == nil, "everyday formats have no note")
+        let pdfNotes = LeafEditing.notes(catalog, key: .pdf, targets: catalog.allTargets(for: .pdf))
+        check(pdfNotes["pdf-merge"] == "several files", "Merge needs several files: \(pdfNotes)")
+        let archives = catalog.allTargets(for: .archive)
+        check(archives.count <= 6 && LeafEditing.rows(archives, hidden: [], showHidden: false).contains(.note(.allFit(archives.count))),
+              "archives all fit on the clover")
 
         // Naming.
         var naming = ConversionSettings()

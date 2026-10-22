@@ -70,6 +70,8 @@ struct DashboardForced {
     var leafKey: LayoutKey?
     var leafSelected: String?
     var leafHovered: String?
+    /// The Leaves list's Hidden part, open.
+    var leafShowHidden = false
     var recording = false
     var rejected = false
     var query = ""

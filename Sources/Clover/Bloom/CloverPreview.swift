@@ -11,8 +11,14 @@ struct CloverPreview: View {
     let arrangement: Arrangement
     /// The file in the middle; nil shows a generic document icon.
     var file: URL? = nil
-    /// Highlights one slot, as if hovered, by target id.
+    /// Highlights one slot, as if hovered, by target id. A target in More lights More.
     var highlighted: String? = nil
+    /// A click on a leaf, with its target id (More gives its first target); nil off the leaves.
+    var onLeaf: ((String?) -> Void)? = nil
+    /// The pointer moved onto a leaf, or off them (nil).
+    var onHover: ((String?) -> Void)? = nil
+
+    @State private var lastHover: String?
 
     /// The clover fits this square.
     static let side: CGFloat = 320
@@ -26,7 +32,9 @@ struct CloverPreview: View {
     @Environment(\.glassTint) private var tint
 
     var body: some View {
-        let lit = highlighted.flatMap { id in arrangement.leaves.firstIndex { $0.id == id } }
+        let lit = highlighted.flatMap { id in
+            arrangement.leaves.firstIndex { $0.id == id } ?? (arrangement.more.contains { $0.id == id } ? arrangement.leaves.count : nil)
+        }
         // Like the live hub with a file: its picture (a plain document when none is given)
         // and its size.
         let picture = Thumbnails.icon(for: file ?? URL(fileURLWithPath: "/Clover preview/document"))
@@ -35,7 +43,30 @@ struct CloverPreview: View {
         BloomScene(model: model, now: 0, side: CloverPreview.scene)
             .scaleEffect(CloverPreview.side / CloverPreview.scene)
             .frame(width: CloverPreview.side, height: CloverPreview.side)
+            .contentShape(Rectangle())
+            .onTapGesture(coordinateSpace: .local) { point in onLeaf?(target(at: point)) }
+            .onContinuousHover(coordinateSpace: .local) { phase in
+                guard let onHover else { return }
+                let id: String?
+                switch phase {
+                case .active(let point): id = target(at: point)
+                case .ended: id = nil
+                }
+                if id != lastHover {
+                    lastHover = id
+                    onHover(id)
+                }
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Clover preview: " + titles.joined(separator: ", "))
+    }
+
+    /// The target under a point of the preview, found with the clover's own hit-testing.
+    private func target(at point: CGPoint) -> String? {
+        let scale = CloverPreview.scene / CloverPreview.side
+        let clover = CGPoint(x: (point.x - CloverPreview.side / 2) * scale, y: (point.y - CloverPreview.side / 2) * scale)
+        let count = arrangement.leaves.count + (arrangement.more.isEmpty ? 0 : 1)
+        guard case .leaf(let index) = BloomLayout.hit(clover, count: count, open: nil, chips: []) else { return nil }
+        return index < arrangement.leaves.count ? arrangement.leaves[index].id : arrangement.more.first?.id
     }
 }
