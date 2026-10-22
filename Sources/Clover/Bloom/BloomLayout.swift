@@ -319,6 +319,18 @@ enum BloomLayout {
     /// as its title fits (at most `labelMaxWidth`) with `labelClearance` of clear space on
     /// every side, as near `labelRadius` along the slot as that allows. With `icon`, a
     /// tool's small icon sits over the title and needs less width.
+    /// A slot's label turned with its leaf (Irfan, 22 Oct 2026: labels follow the leaf's
+    /// angle, even upside down at the bottom). The label box of the slot at 12 o'clock,
+    /// turned about the disc's centre by the slot's angle: its centre (clover
+    /// coordinates), its size, and the angle to turn the text by.
+    static func turnedLabel(_ index: Int, of count: Int, icon: Bool = false) -> (center: CGPoint, size: CGSize, angle: CGFloat) {
+        let box = labelBox(0, of: count, icon: icon)
+        let c = CGPoint(x: box.midX, y: box.midY)
+        let a = angle(index, of: count)
+        let center = CGPoint(x: c.x * cos(a) - c.y * sin(a), y: c.x * sin(a) + c.y * cos(a))
+        return (center, box.size, a)
+    }
+
     static func labelBox(_ index: Int, of count: Int, icon: Bool = false) -> CGRect {
         let key = Key(index: index, count: count, icon: icon)
         if let cached = labels[key] { return cached }

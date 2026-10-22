@@ -154,6 +154,17 @@ enum BloomSelfTest {
                     expect(L.distance(nearest, .zero) > G.hubSize / 2 + 2, "slot \(i) of \(n): label clear of the hub")
                     expect(abs(L.distance(label.mid, .zero) - G.labelRadius) < 32, "slot \(i) of \(n): label near 72 % of the radius")
                 }
+                // Turned with its leaf, the label still sits wholly inside it.
+                for withIcon in [false, true] {
+                    let t = L.turnedLabel(i, of: n, icon: withIcon)
+                    let hw = t.size.width / 2, hh = t.size.height / 2
+                    let corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)].map { dx, dy in
+                        CGPoint(x: t.center.x + dx * cos(t.angle) - dy * sin(t.angle),
+                                y: t.center.y + dx * sin(t.angle) + dy * cos(t.angle))
+                    }
+                    expect(corners.allSatisfy { path.contains($0) } && L.sector(t.center, count: n) == i,
+                           "slot \(i) of \(n)\(withIcon ? " with an icon" : ""): the turned label inside its leaf")
+                }
                 let label = L.labelBox(i, of: n)
                 // No two slots overlap; neighbours keep the gap, so the disc's glass shows between them.
                 for j in 0..<n where j > i {

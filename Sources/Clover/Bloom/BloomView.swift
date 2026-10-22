@@ -268,7 +268,7 @@ struct SlotView: View {
         let bounds = BloomLayout.leafBounds(index, of: count)
         let local = SlotView.localPath(index, count)
         let shape = Path(local)
-        let label = BloomLayout.labelBox(index, of: count, icon: symbol != nil)
+        let label = BloomLayout.turnedLabel(index, of: count, icon: symbol != nil)
         let dark = scheme == .dark
         let lit = fill == .flash || (fill == .lit && litAmount > 0.5)
         ZStack(alignment: .topLeading) {
@@ -289,18 +289,12 @@ struct SlotView: View {
                     .opacity(0.9 * innerGlow)
             }
             shape.stroke(rim(lit: lit, dark: dark), lineWidth: 0.75)
-            Path { p in
-                for (a, b) in BloomLayout.midrib(index, of: count, icon: symbol != nil) {
-                    p.move(to: CGPoint(x: a.x - bounds.minX, y: a.y - bounds.minY))
-                    p.addLine(to: CGPoint(x: b.x - bounds.minX, y: b.y - bounds.minY))
-                }
-            }
-            .stroke(lit ? (dark ? Color.white.opacity(0.35) : Color.black.opacity(0.08)) : (dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07)),
-                    style: StrokeStyle(lineWidth: 0.75, lineCap: .round))
+            // No midrib line (Irfan, 22 Oct 2026). The label turns with its leaf.
             if fill != .flash {
-                SlotLabel(title: title, symbol: symbol, hue: hue, lit: lit, width: label.width)
-                    .frame(width: label.width, height: label.height)
-                    .offset(x: label.minX - bounds.minX, y: label.minY - bounds.minY)
+                SlotLabel(title: title, symbol: symbol, hue: hue, lit: lit, width: label.size.width)
+                    .frame(width: label.size.width, height: label.size.height)
+                    .rotationEffect(.radians(label.angle))
+                    .position(x: label.center.x - bounds.minX, y: label.center.y - bounds.minY)
             }
             if focused {
                 Path(PathOutset.outset(local, by: 1.5, key: "slot \(index) of \(count)"))
