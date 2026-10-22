@@ -667,11 +667,14 @@ enum BloomSelfTest {
         e.openedAt = 0
         e.slotsAt = 0
         let c = CGPoint(x: 0, y: -120)
-        expect(M.slot(0, count: 6, center: c, e, now: 0).look == .still && M.slot(5, count: 6, center: c, e, now: 0).look == .still,
-               "slots are there at once, full size and sharp")
-        expect(M.disc(e, now: 0) == .still && M.hub(e, now: 0) == .still && M.capsule(e, now: 0) == .still, "so are the disc, hub and capsule")
+        let first = M.slot(0, count: 6, center: c, e, now: 0).look
+        expect(first.opacity == 1 && first.blur == 0 && abs(first.scale - M.Open.settleFrom) < 0.001,
+               "slots are there at once, sharp, with their labels, settling from 97 %")
+        expect(M.slot(5, count: 6, center: c, e, now: M.Open.settle + 0.01).look == .still, "and are full size after the settle")
+        expect(M.disc(e, now: 0) == .still && M.capsule(e, now: 0) == .still && M.hub(e, now: M.Open.settle + 0.01) == .still,
+               "the disc and capsule don't move; the hub settles with the slots")
         expect(M.lightRing(e, now: 0.2) == nil, "no ring of light on open")
-        expect(M.busyUntil(e, count: 6) < 0, "opening runs no frame clock")
+        expect(abs(M.busyUntil(e, count: 6) - M.Open.settle) < 0.001, "opening runs the frame clock only for the settle")
         e.lit = 1
         e.litAt = 2
         e.dimAt = 2

@@ -16,8 +16,13 @@ enum Motion {
     // MARK: Open
 
     enum Open {
-        /// Off: the disc, slots, hub and capsule appear at once, full size and sharp.
+        /// Off: no unfolding. The window fades in instead (`fadeIn`) while the slots and
+        /// hub settle from `settleFrom` to full size, all as one piece with their labels
+        /// (Irfan, 22 Oct 2026: the instant open felt abrupt).
         static let animated = false
+        static let fadeIn: TimeInterval = 0.18
+        static let settle: TimeInterval = 0.20
+        static let settleFrom: CGFloat = 0.97
         /// The glass disc grows from the pointer.
         static let disc: TimeInterval = 0.30
         static let discFrom: CGFloat = 0.85
@@ -355,7 +360,10 @@ extension Motion {
             return look
         }
         if let cancel = e.cancelAt { return cancelLook(e, now: now, since: cancel) }
-        guard Open.animated else { return .still }
+        guard Open.animated else {
+            if e.reduce { return .still }
+            return Look(scale: lerp(Open.settleFrom, 1, settle(phase(now, max(e.slotsAt, e.openedAt), Open.settle))))
+        }
         if e.reduce { return Look(opacity: phase(now, e.openedAt, fade)) }
         let p = settle(phase(now, e.openedAt, Open.hub))
         return Look(scale: lerp(Open.hubFrom, 1, p), blur: lerp(Open.hubBlur, 0, p),
@@ -428,7 +436,12 @@ extension Motion {
 
     /// The slot unfolding from the centre circle when the files arrive.
     static func unfold(_ i: Int, center: CGPoint, _ e: BloomEvents, now: TimeInterval) -> Look {
-        guard Open.animated else { return .still }
+        guard Open.animated else {
+            if e.reduce { return .still }
+            // Settles about the disc's centre, with the hub, as the window fades in.
+            let s = lerp(Open.settleFrom, 1, settle(phase(now, max(e.slotsAt, e.openedAt), Open.settle)))
+            return Look(scale: s, offset: CGSize(width: center.x * (s - 1), height: center.y * (s - 1)))
+        }
         let start = max(e.slotsAt, e.openedAt) + (e.reduce ? 0 : Double(i) * Open.slotStagger)
         if e.reduce { return Look(opacity: phase(now, start, fade)) }
         let raw = phase(now, start, Open.slot)
@@ -701,6 +714,8 @@ extension Motion {
         if Open.animated {
             end = max(end, max(e.slotsAt, e.openedAt) + Open.slot + Open.slotStagger * Double(count))
             end = max(end, max(e.openedAt, e.slotsAt) + Open.capsuleDelay + Open.capsule)
+        } else if !e.reduce {
+            end = max(end, max(e.slotsAt, e.openedAt) + Open.settle)
         }
         if Open.ringEnabled { end = max(end, e.openedAt + Open.ring) }
         if Hover.popEnabled { end = max(end, e.litAt + Hover.popRise + Hover.popSettle, e.unlitAt + Hover.leave) }

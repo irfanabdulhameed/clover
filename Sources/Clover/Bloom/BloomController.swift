@@ -170,6 +170,13 @@ final class BloomController: BloomInteractionDelegate {
         guard NSEvent.modifierFlags.contains(model.settings.triggerKey.flag) else { return }
         let mouse = NSEvent.mouseLocation
         bloom.reset(mode: .drag)
+        // The labels must be there when the clover shows. From Finder, its selection is
+        // what is being dragged (asked only when already allowed, so no prompt mid-drag).
+        // From other apps the files arrive when the drag reaches the clover.
+        if FinderSelection.finderIsFrontmost, FinderSelection.permitted,
+           case .success(let files) = FinderSelection.read(), !files.isEmpty {
+            bloom.setFiles(files, arrangement: model.arrangement(for: files))
+        }
         show(at: mouse, on: BloomController.screen(containing: mouse), mode: .drag)
     }
 
@@ -371,6 +378,7 @@ final class BloomController: BloomInteractionDelegate {
     private func show(at anchor: NSPoint, on screen: NSScreen, mode: BloomModel.Mode) {
         guard let panel else { return }
         pendingHide?.cancel()
+        panel.alphaValue = 0
         // A clover still folding away goes at once.
         if pendingFinish != nil { finishHide(keepModel: true) }
         bloom.reduceMotion = model.settings.reduceMotion
@@ -394,6 +402,17 @@ final class BloomController: BloomInteractionDelegate {
         // now that it is on screen.
         if panel.screen != screen || panel.frame != frame {
             panel.setFrame(frame, display: true)
+        }
+        reveal()
+    }
+
+    /// Fades the clover's window in, glass and all, with everything already drawn.
+    private func reveal() {
+        guard let panel, shownMode != nil, panel.alphaValue < 1 else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Motion.Open.fadeIn
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+            panel.animator().alphaValue = 1
         }
     }
 
