@@ -33,6 +33,7 @@ final class BloomController: BloomInteractionDelegate {
     private var shownMode: BloomModel.Mode?
     /// The clover's centre on screen.
     private var center = NSPoint.zero
+    private var screenObserver: NSObjectProtocol?
     /// Opened by a hold in Finder: letting go without a drag turns it to click mode.
     private var openedByHold = false
     private var hold: HoldWatch?
@@ -56,6 +57,15 @@ final class BloomController: BloomInteractionDelegate {
     func start() {
         if BloomDebug.run(CommandLine.arguments, model: model) { return }
         makePanel()
+        // Clover starts at login, often before every display is set up. When displays
+        // change, the floating windows are made again so they open on the right screen.
+        if screenObserver == nil {
+            screenObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screensChanged() }
+            }
+        }
         guard monitors.isEmpty else { return }
         // Leaf outlines and label boxes are measured once, now, not on the first drag.
         DispatchQueue.main.async {
@@ -368,7 +378,8 @@ final class BloomController: BloomInteractionDelegate {
         let c = BloomLayout.clampedCenter(anchor, bounds: BloomController.extent, visible: screen.visibleFrame)
         center = c
         let side = BloomGeometry.panelSize
-        panel.setFrame(NSRect(x: c.x - side / 2, y: c.y - side / 2, width: side, height: side), display: true)
+        let frame = NSRect(x: c.x - side / 2, y: c.y - side / 2, width: side, height: side)
+        panel.setFrame(frame, display: true)
         panel.allowsKey = mode == .click
         shownMode = mode
         openedByHold = false
@@ -379,6 +390,21 @@ final class BloomController: BloomInteractionDelegate {
         } else {
             panel.orderFrontRegardless()
         }
+        // A window placed while hidden can come up on another display; place it again
+        // now that it is on screen.
+        if panel.screen != screen || panel.frame != frame {
+            panel.setFrame(frame, display: true)
+        }
+    }
+
+    /// Displays were added, removed or rearranged: make the floating windows again.
+    private func screensChanged() {
+        if shownMode != nil { dismiss() }
+        panel?.orderOut(nil)
+        trayPanel?.orderOut(nil)
+        panel = nil
+        trayPanel = nil
+        makePanel()
     }
 
     /// Shows the More tray beside the More slot, kept on screen, or lets it fold away.
