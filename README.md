@@ -14,15 +14,32 @@
 
 Clover is a native **macOS file converter** that lives in your menu bar. Instead of opening a converter, choosing a file and picking settings, you drag the file you already have and drop it on the format you want. Convert **HEIC to JPG**, **PNG to WebP**, **MOV to MP4**, **video to GIF**, **WAV to MP3**, **PDF to JPG**, **DOCX to PDF** and dozens more, one file or a hundred at a time.
 
-Everything runs on your Mac. Clover has no network code, no accounts and no analytics, so your files never leave your computer.
+Every conversion runs on your Mac. Clover has no accounts and no analytics, and your files never leave your computer.
+
+## Download
+
+<p align="center">
+  <a href="https://github.com/irfanabdulhameed/clover/releases/latest/download/Clover.dmg"><img src="docs/images/download-button.svg" width="232" height="52" alt="Download Clover for Mac"></a>
+</p>
+
+<p align="center">Requires macOS 14 Sonoma or later on a Mac with Apple silicon. Free and open source.</p>
+
+**The first time you open it:**
+
+1. Open **Clover.dmg** and drag **Clover** onto **Applications**.
+2. Open Clover from Applications. Clover isn't notarized by Apple yet, so macOS says it can't check it. Click **Done** (or **OK**).
+3. Open **System Settings › Privacy & Security**, scroll down to **Security**, and click **Open Anyway** next to the line about Clover. Confirm with your password or Touch ID, then click **Open**.
+
+You only do this once. After that Clover opens like any other app and keeps itself up to date: when a new version is out, a window lists what's new and **Update Now** installs it.
 
 ## Contents
 
+- [Download](#download)
 - [Features](#features)
 - [How to use Clover](#how-to-use-clover)
 - [Supported formats](#supported-formats)
 - [The dashboard](#the-dashboard)
-- [Install and build](#install-and-build)
+- [Build from source](#build-from-source)
 - [Command line](#command-line)
 - [Privacy](#privacy)
 - [FAQ](#faq)
@@ -39,6 +56,7 @@ Everything runs on your Mac. Clover has no network code, no accounts and no anal
 - **Safe by design.** The original is never touched. New files appear beside it with a free name ("photo 2.jpg"), and Undo moves a result to the Trash.
 - **Copy the result.** One click copies the converted file, ready to paste into Finder, Mail or Slack.
 - **Made for macOS.** Liquid Glass on macOS 26 Tahoe, Light and Dark mode, trackpad haptics, Reduce motion, and keyboard control throughout.
+- **Keeps itself up to date.** When a new version is out, Clover shows what changed and installs it with one click.
 
 ## How to use Clover
 
@@ -97,11 +115,11 @@ A small pill shows the conversion and then the result.
 | **Audio** | MP3, M4A, AAC, WAV, FLAC, OGG, Opus, AIFF, WMA, CAF | MP3, M4A (AAC or Apple Lossless), WAV, FLAC, OGG, Opus, AIFF |
 | **Archives** | ZIP, TAR, TAR.GZ, GZ, TAR.XZ, TAR.BZ2, 7Z, RAR | Extract to a folder; ZIP or TAR.GZ of any files and folders |
 
-When there's no direct way, Clover chains two steps, for example HEIC → PNG → WebP or DOCX → PDF → JPG. Video and audio need [ffmpeg](https://ffmpeg.org), and WebP output needs `cwebp`; see [Install and build](#install-and-build).
+When there's no direct way, Clover chains two steps, for example HEIC → PNG → WebP or DOCX → PDF → JPG. Video and audio need [ffmpeg](https://ffmpeg.org), and WebP output needs `cwebp`: `brew install ffmpeg webp`, with [Homebrew](https://brew.sh).
 
 ## The dashboard
 
-Open it from the menu bar icon (**Dashboard**, <kbd>⌘</kbd><kbd>,</kbd>).
+Open it from the menu bar icon (**Dashboard**, <kbd>⌘</kbd><kbd>,</kbd>), or open Clover again from Spotlight or Applications. While the dashboard is open, Clover shows in the Dock and in <kbd>⌘</kbd><kbd>Tab</kbd>.
 
 <p align="center">
   <img src="docs/images/clover-dashboard-leaves.png" width="560" alt="Clover dashboard, Leaves page: tabs for Images, PDF, Docs, Video, Audio, Archives and Mixed, a live preview of the clover, and a list of formats grouped into On the clover and In More">
@@ -121,9 +139,9 @@ Open it from the menu bar icon (**Dashboard**, <kbd>⌘</kbd><kbd>,</kbd>).
   <img src="docs/images/clover-dashboard-feel.png" width="560" alt="Clover dashboard, Feel page: motion, haptics, finish sound and a glass tint picker with preset colours and a custom colour">
 </p>
 
-## Install and build
+## Build from source
 
-Clover is built from source with Apple's Command Line Tools; you don't need Xcode.
+The [download](#download) is the easy way. To build Clover yourself, you need Apple's Command Line Tools, not Xcode.
 
 **Requirements**
 
@@ -148,15 +166,16 @@ open ~/Applications/Clover.app
 
 The clover icon appears in the menu bar. The first time you use **Hold and Shift** or the shortcut, macOS asks to let Clover control Finder; that's how Clover reads which files are selected.
 
-To start Clover when you log in, turn on **Open at login** in Dashboard › Output.
+To start Clover when you log in, turn on **Open at login** in Dashboard › Output. A copy you build yourself also checks for updates, and **Update Now** replaces it with the released version.
 
 ## Command line
 
 The same converter runs without the interface, which is handy for scripts and automation:
 
 ```bash
-CLOVER=~/Applications/Clover.app/Contents/MacOS/Clover
+CLOVER=/Applications/Clover.app/Contents/MacOS/Clover   # ~/Applications/… if you built it yourself
 
+$CLOVER --version                              # the version, e.g. Clover 1.0.0 (1)
 $CLOVER tools                                  # which engines are installed
 $CLOVER targets holiday.heic                   # what this file can become
 $CLOVER convert jpg --option small *.heic      # convert, printing the new paths
@@ -165,7 +184,8 @@ $CLOVER convert pdf-merge part1.pdf part2.pdf  # merge into one PDF
 
 ## Privacy
 
-- Clover works entirely offline. It contains no network code.
+- Every conversion happens on your Mac. Your files never leave it, and Clover never sends anything about them.
+- The only connections Clover makes are to GitHub, for its own updates. It asks GitHub for the list of Clover releases about 10 seconds after it starts, every 6 hours and when your Mac wakes, and only on Wi-Fi or Ethernet, never on a phone's hotspot or with Low Data Mode on. When you click **Update Now**, it downloads the new version from GitHub. Like any web request, these show GitHub your IP address and Clover's version, and nothing else.
 - No analytics, accounts or tracking.
 - Your originals are never changed. Conversions write new files, and Undo moves them to the Trash.
 - The only permission Clover asks for is Automation for Finder, and only when you use Hold and Shift or the shortcut.
@@ -191,7 +211,13 @@ Those need extra engines. Run `brew install ffmpeg webp`, then press **Refresh**
 Clover adds **Convert with Clover** under **Services**. If you don't see it, turn it on in System Settings › Keyboard › Keyboard Shortcuts › Services.
 
 ### Does Clover upload my files?
-No. Every conversion happens on your Mac, and Clover has no code that connects to the internet.
+No. Every conversion happens on your Mac. The only thing Clover fetches from the internet is its own updates, from GitHub, and it sends nothing about your files.
+
+### How does Clover update itself?
+On Wi-Fi or Ethernet, Clover asks GitHub now and then whether a newer version is out. When one is, a window lists what changed in every version since yours. **Update Now** downloads it, replaces Clover (the old copy goes to the Trash) and opens the new one; **Later** asks again the next day or the next time Clover starts. After an update, macOS may ask once more to let Clover control Finder. To check yourself, right-click the menu bar icon and choose **Check for Updates…**, or use the button at the bottom of the dashboard's sidebar.
+
+### macOS says Clover can't be opened
+Clover isn't notarized by Apple yet. Follow the three steps under [Download](#download): open it once, then click **Open Anyway** in System Settings › Privacy & Security. Updates installed by Clover itself don't ask again.
 
 ## For developers
 
@@ -199,7 +225,7 @@ No. Every conversion happens on your Mac, and Clover has no code that connects t
 Sources/CloverCore   formats, routes, converters (ImageIO, PDFKit, the text system, ffmpeg, cwebp, archives), jobs
 Sources/Clover       the menu bar app: the clover, the result pill, Home, the dashboard, the command line
 Tests                Swift Testing suites
-scripts              build.sh, test.sh, make-icon.sh, check-builtin.sh, check-media.sh
+scripts              build.sh, test.sh, make-dmg.sh, release.sh, make-icon.sh, check-builtin.sh, check-media.sh
 ```
 
 ```bash
@@ -207,7 +233,21 @@ scripts              build.sh, test.sh, make-icon.sh, check-builtin.sh, check-me
 ./scripts/check-builtin.sh        # every built-in conversion on generated sample files
 ./scripts/check-media.sh          # every video and audio conversion
 .build/debug/Clover --bloom-selftest   # the clover's layout and motion checks
+./scripts/make-dmg.sh             # build/Clover.dmg, the download
 ```
+
+### Making a release
+
+Releases are built on a Mac and published with [gh](https://cli.github.com):
+
+```bash
+./scripts/release.sh patch --dry-run   # everything except pushing and publishing
+./scripts/release.sh patch             # or minor, major; --notes notes.md for your own notes
+```
+
+The script checks that `main` is clean and pushed, sets the version in `Resources/Info.plist`, commits "Release X.Y.Z", builds `Clover.dmg`, tags `vX.Y.Z`, pushes, and creates the GitHub release with `Clover.dmg` attached. The notes are the commits since the last release that touch the app. The disk image always has the same name, so the download link above always gets the newest one, and running copies of Clover find it within hours.
+
+To try the updater without a release, point a copy at a local feed: `Clover.app/Contents/MacOS/Clover --update-check -updateFeedURL http://127.0.0.1:8000/releases.json` prints what the update window would list (add `--accept` to install). `--render-update <folder>` draws every state of the window.
 
 ## License
 
