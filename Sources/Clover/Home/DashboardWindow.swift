@@ -9,18 +9,21 @@ enum DashboardSize {
 }
 
 /// The one Dashboard window. It is made the first time and brought to the front after that.
+/// While it is open, Clover shows in the Dock and in ⌘-Tab.
 @MainActor
-final class DashboardWindowController: NSObject {
+final class DashboardWindowController: NSObject, NSWindowDelegate {
     private let model: AppModel
     private let bloom: BloomController
     private let login = LaunchAtLogin()
     private let navigator = DashboardNavigator()
     private(set) lazy var window: NSWindow = makeWindow()
     private var titleObserver: AnyCancellable?
+    private let checkForUpdates: () -> Void
 
-    init(model: AppModel, bloom: BloomController) {
+    init(model: AppModel, bloom: BloomController, checkForUpdates: @escaping () -> Void) {
         self.model = model
         self.bloom = bloom
+        self.checkForUpdates = checkForUpdates
     }
 
     /// Shows the window in front, creating it the first time. `section` picks what it shows.
@@ -30,13 +33,19 @@ final class DashboardWindowController: NSObject {
         login.refresh()
         Self.installMainMenuIfNeeded()
         if window.isMiniaturized { window.deminiaturize(nil) }
+        DockPresence.show(.dashboard)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        DockPresence.hide(.dashboard)
     }
 
     private func makeWindow() -> NSWindow {
         let root = DashboardRoot(model: model, login: login, navigator: navigator, actions: makeActions())
         let window = Self.makeWindow(content: root)
+        window.delegate = self
         // The title follows the section.
         window.title = navigator.section.title
         titleObserver = navigator.$section.sink { [weak window] section in window?.title = section.title }
@@ -79,7 +88,8 @@ final class DashboardWindowController: NSObject {
             clearAll: { [model] in model.recents.clear() },
             refreshTools: { [model] in model.refreshTools() },
             setLaunchAtLogin: { [login] on in login.setEnabled(on) },
-            openLoginItems: { [login] in login.openLoginItemsSettings() })
+            openLoginItems: { [login] in login.openLoginItemsSettings() },
+            checkForUpdates: checkForUpdates)
     }
 
     private func existingOutputs(of item: RecentItem) -> [URL] {

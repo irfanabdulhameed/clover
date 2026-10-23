@@ -2,14 +2,21 @@ import Foundation
 import CloverCore
 
 /// Headless commands, for scripts and tests:
+///   Clover --version
 ///   Clover tools
 ///   Clover targets <file>...
 ///   Clover convert <target-id> [--option <option-id>] <file>...
 @MainActor
 enum CLI {
-    static let commands: Set<String> = ["tools", "targets", "convert"]
+    static let commands: Set<String> = ["--version", "tools", "targets", "convert"]
 
     static func run(_ arguments: [String]) async -> Int32 {
+        if arguments.first == "--version" {
+            let info = Bundle.main.infoDictionary
+            let version = info?["CFBundleShortVersionString"] as? String ?? "development build"
+            print("Clover \(version)" + ((info?["CFBundleVersion"] as? String).map { " (\($0))" } ?? ""))
+            return 0
+        }
         let tools = Tools.detect()
         let router = Registry.makeRouter(tools: tools)
         let service = ConversionService(router: router)
@@ -64,7 +71,7 @@ enum CLI {
     }
 
     private static func usage() -> Int32 {
-        print("Usage: Clover tools | targets <file>... | convert <target-id> [--option <id>] <file>...")
+        print("Usage: Clover --version | tools | targets <file>... | convert <target-id> [--option <id>] <file>...")
         return 2
     }
 }

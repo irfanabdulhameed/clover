@@ -58,11 +58,12 @@ struct DashboardActions {
     var refreshTools: () -> Void
     var setLaunchAtLogin: (Bool) -> Void
     var openLoginItems: () -> Void
+    var checkForUpdates: () -> Void
 
     /// Does nothing. For previews and renders.
     static let none = DashboardActions(
         reveal: { _ in }, open: { _ in }, convertAgain: { _ in }, remove: { _ in }, clearAll: {},
-        refreshTools: {}, setLaunchAtLogin: { _ in }, openLoginItems: {})
+        refreshTools: {}, setLaunchAtLogin: { _ in }, openLoginItems: {}, checkForUpdates: {})
 }
 
 /// States a render can force, because a picture can't hover, type or search.
@@ -181,7 +182,7 @@ struct DashboardView: View {
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
-        .safeAreaInset(edge: .bottom, spacing: 0) { AboutBlock() }
+        .safeAreaInset(edge: .bottom, spacing: 0) { AboutBlock(checkForUpdates: actions.checkForUpdates) }
     }
 
     @ViewBuilder private var detail: some View {
@@ -207,8 +208,10 @@ struct DashboardView: View {
     }
 }
 
-/// The icon, name, version and copyright at the bottom of the sidebar.
+/// The icon, name, version, copyright and Check for Updates at the bottom of the sidebar.
 private struct AboutBlock: View {
+    let checkForUpdates: () -> Void
+
     private var version: String {
         let info = Bundle.main.infoDictionary
         guard let short = info?["CFBundleShortVersionString"] as? String else { return "Development build" }
@@ -243,11 +246,16 @@ private struct AboutBlock: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                Button("Check for Updates", action: checkForUpdates)
+                    .controlSize(.small)
+                    .help("Ask GitHub whether a newer Clover is out")
+                    .padding(.top, 2)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
         }
     }
 }

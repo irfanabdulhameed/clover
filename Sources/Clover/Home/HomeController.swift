@@ -8,16 +8,22 @@ final class HomeController: NSObject, NSPopoverDelegate {
     private let bloom: BloomController
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
-    private lazy var dashboard = DashboardWindowController(model: model, bloom: bloom)
+    private lazy var dashboard = DashboardWindowController(model: model, bloom: bloom, checkForUpdates: checkForUpdates)
+    private let checkForUpdates: () -> Void
 
     /// Where the menu bar icon is on screen, for a result chip that waits under it. nil until the icon exists.
     static var statusIconFrame: () -> NSRect? = { nil }
 
-    init(model: AppModel, bloom: BloomController) {
+    init(model: AppModel, bloom: BloomController, checkForUpdates: @escaping () -> Void) {
         self.model = model
         self.bloom = bloom
+        self.checkForUpdates = checkForUpdates
         super.init()
     }
+
+    /// The flags that draw pictures and quit instead of starting the app.
+    static let renderFlags = ["--render-home", "--render-chip-frames", "--render-dashboard"]
+    static var isRender: Bool { renderFlags.contains { CommandLine.arguments.contains($0) } }
 
     /// Puts the icon in the menu bar. With `--render-home <folder>`, `--render-dashboard <folder>` or
     /// `--render-chip-frames <folder>` it draws pictures into the folder instead, and quits.
@@ -80,6 +86,7 @@ final class HomeController: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
         let menu = NSMenu()
         menu.addItem(ActionMenuItem("Dashboard…", key: ",") { [weak self] in self?.openDashboard() })
+        menu.addItem(ActionMenuItem("Check for Updates…") { [weak self] in self?.checkForUpdates() })
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Quit Clover", key: "q") { NSApp.terminate(nil) })
         item.menu = menu
