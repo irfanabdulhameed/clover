@@ -64,7 +64,9 @@ struct BloomScene: View {
             if let carried, let wave = DistortionWaves.front(e, now: now, slot: carried, count: count) {
                 // Seen through the distortion wave: the disc's square, around its centre.
                 let disc = DistortionWaves.discSize
-                DistortionStage(front: wave.front, source: wave.source) {
+                // Until the carry the other leaves stand still, so they are pictured once.
+                let still = e.drop.map { now - $0.at < Motion.Drop.gatherAt - 0.02 } ?? false
+                DistortionStage(front: wave.front, source: wave.source, freezeKey: still ? e.drop?.at : nil) {
                     layer(e, count: count, center: center, carried: carried, origin: origin)
                         .frame(width: disc.width, height: disc.height)
                 }

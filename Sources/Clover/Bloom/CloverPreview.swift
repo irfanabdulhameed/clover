@@ -51,7 +51,7 @@ struct CloverPreview: View {
                     let t = context.date.timeIntervalSinceReferenceDate - wave.at
                     let size = CGSize(width: CloverPreview.scene, height: CloverPreview.scene)
                     let w = DistortionWaves.front(at: max(t, 0), slot: wave.slot, count: count, in: size)
-                    DistortionStage(front: w.front, source: w.source, style: CloverPreview.waveStyle) {
+                    DistortionStage(front: w.front, source: w.source, style: CloverPreview.waveStyle, freezeKey: wave.at) {
                         BloomScene(model: model, now: 0, side: CloverPreview.scene)
                     }
                 }

@@ -64,7 +64,15 @@ struct DistortionStage<Content: View>: View {
     let front: WaveFront
     let source: CGRect
     var style = DistortionWaves.style
+    /// While set, the content is drawn once, the first time this key is seen, and the
+    /// picture goes through the lens: three copies of a picture cost far less a frame than
+    /// three of the views. Nil draws the content live, as it changes.
+    var freezeKey: Double? = nil
     @ViewBuilder let content: () -> Content
+
+    @State private var frozen = FrozenContent()
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.displayScale) private var displayScale
 
     /// The first blurred copy's radius; the second has the style's full radius.
     private static var nearBlur: Double { 7 }
@@ -99,13 +107,38 @@ struct DistortionStage<Content: View>: View {
         .accessibilityHidden(true)
     }
 
-    /// The content with its two blurred copies over it, through the lens as one layer.
+    /// The content, or its picture while frozen.
+    @ViewBuilder private func base() -> some View {
+        if let key = freezeKey, let image = frozen.image(for: key, build: snapshot) {
+            Image(decorative: image, scale: displayScale)
+                .resizable()
+                .frame(width: front.size.width, height: front.size.height)
+        } else {
+            content()
+        }
+    }
+
+    /// The content drawn once into a picture, as it looks now: plain SwiftUI, with the
+    /// frosted stand-in for any system glass, which can't be pictured or go through a shader.
+    private func snapshot() -> CGImage? {
+        let renderer = ImageRenderer(content: content()
+            .frame(width: front.size.width, height: front.size.height)
+            .environment(\.colorScheme, scheme)
+            .environment(\.bloomSnapshot, true))
+        renderer.scale = displayScale
+        return renderer.cgImage
+    }
+
+    /// The content with its two blurred copies over it, through the lens as one layer. The
+    /// copies stay built while hidden when the content is a picture: building them on the
+    /// wave's first frame would stall it.
     @ViewBuilder private func lensed(field: [Float], lens: Bool, blurred: Bool) -> some View {
         if let library = DistortionWaves.library {
+            let keep = freezeKey != nil
             ZStack {
-                content()
-                copy(library, radius: Self.nearBlur, from: 0, to: Self.nearBlur, field: field, on: blurred)
-                copy(library, radius: style.blur, from: Self.nearBlur, to: style.blur, field: field, on: blurred)
+                base()
+                copy(library, radius: Self.nearBlur, from: 0, to: Self.nearBlur, field: field, on: blurred, keep: keep)
+                copy(library, radius: style.blur, from: Self.nearBlur, to: style.blur, field: field, on: blurred, keep: keep)
             }
             .compositingGroup()
             // Side 0: the same content on both sides of the front, never covered.
@@ -117,14 +150,32 @@ struct DistortionStage<Content: View>: View {
         }
     }
 
-    @ViewBuilder private func copy(_ library: ShaderLibrary, radius: Double, from: Double, to: Double, field: [Float], on: Bool) -> some View {
-        if on {
-            content()
+    @ViewBuilder private func copy(_ library: ShaderLibrary, radius: Double, from: Double, to: Double, field: [Float],
+                                   on: Bool, keep: Bool) -> some View {
+        if on || keep {
+            base()
                 .compositingGroup()
-                .blur(radius: radius)
+                // No radius while hidden: a hidden copy then costs nothing.
+                .blur(radius: on ? radius : 0)
                 .colorEffect(library.waveBlurMask(.floatArray(field), .float(style.blur), .float(style.blurAhead),
-                                                  .float(style.blurBehind), .float(from), .float(to)))
+                                                  .float(style.blurBehind), .float(from), .float(to)),
+                             isEnabled: on)
+                .opacity(on ? 1 : 0)
                 .allowsHitTesting(false)
         }
+    }
+}
+
+/// The picture of a frozen stage's content, made once per key.
+final class FrozenContent {
+    private var key: Double?
+    private var image: CGImage?
+
+    @MainActor func image(for key: Double, build: () -> CGImage?) -> CGImage? {
+        if self.key != key {
+            self.key = key
+            image = build()
+        }
+        return image
     }
 }
