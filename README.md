@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/clover-demo.gif" width="560" alt="Clover in action: the clover opens at the pointer, a JPG leaf is pressed, and the result pill shows the converted photo">
+  <img src="docs/images/clover-demo.gif" width="560" alt="Clover in action: the clover opens at the pointer, the JPG leaf is pressed, a colourful wave bends the other leaves and lights the rim, the clover gathers into a ring, and the result pill shows the converted photo while a beam runs round its edge">
 </p>
 
 Clover is a native **macOS file converter** that lives in your menu bar. Instead of opening a converter, choosing a file and picking settings, you drag the file you already have and drop it on the format you want. Convert **HEIC to JPG**, **PNG to WebP**, **MOV to MP4**, **video to GIF**, **WAV to MP3**, **PDF to JPG**, **DOCX to PDF** and dozens more, one file or a hundred at a time.
@@ -56,6 +56,7 @@ You only do this once. After that Clover opens like any other app and keeps itse
 - **Safe by design.** The original is never touched. New files appear beside it with a free name ("photo 2.jpg"), and Undo moves a result to the Trash.
 - **Copy the result.** One click copies the converted file, ready to paste into Finder, Mail or Slack.
 - **Made for macOS.** Liquid Glass on macOS 26 Tahoe, Light and Dark mode, trackpad haptics, Reduce motion, and keyboard control throughout.
+- **Motion that tells you it worked.** Choosing a leaf sends a distortion wave across the clover, bending and colouring the leaves, and a finished conversion's pill gets a beam that runs twice round its edge.
 - **Keeps itself up to date.** When a new version is out, Clover shows what changed and installs it with one click.
 
 ## How to use Clover
@@ -90,7 +91,7 @@ Press the same key again, or <kbd>Esc</kbd>, to close the clover without convert
 
 ### Follow the result
 
-A small pill shows the conversion and then the result.
+A small pill shows the conversion and then the result. When it's done, a colourful beam runs twice round its edge and fades away.
 
 <p align="center">
   <img src="docs/images/clover-result-pill.png" width="440" alt="Two Clover result pills: one converting photo.png to JPG with a progress ring, and one finished with photo.jpg, 1.2 MB, 64 % smaller, and Undo, Copy and Close buttons">
@@ -122,7 +123,7 @@ When there's no direct way, Clover chains two steps, for example HEIC → PNG �
 Open it from the menu bar icon (**Dashboard**, <kbd>⌘</kbd><kbd>,</kbd>), or open Clover again from Spotlight or Applications. While the dashboard is open, Clover shows in the Dock and in <kbd>⌘</kbd><kbd>Tab</kbd>.
 
 <p align="center">
-  <img src="docs/images/clover-dashboard-leaves.png" width="560" alt="Clover dashboard, Leaves page: tabs for Images, PDF, Docs, Video, Audio, Archives and Mixed, a live preview of the clover, and a list of formats grouped into On the clover and In More">
+  <img src="docs/images/clover-dashboard-clover-dark.png" width="560" alt="Clover dashboard, Clover page in Dark mode: tabs for Images, PDF, Docs, Video, Audio, Archives and Mixed, a live preview of the clover, the glass tint swatches, and a list of formats grouped into On the clover and In More">
 </p>
 
 | Page | What you see or change |
@@ -136,7 +137,7 @@ Open it from the menu bar icon (**Dashboard**, <kbd>⌘</kbd><kbd>,</kbd>), or o
 | **History** | Every conversion, with search, Show in Finder and Convert again. |
 
 <p align="center">
-  <img src="docs/images/clover-dashboard-feel.png" width="560" alt="Clover dashboard, Feel page: motion, haptics, finish sound and a glass tint picker with preset colours and a custom colour">
+  <img src="docs/images/clover-dashboard-clover-light.png" width="560" alt="The same Clover page in Light mode with the blue glass tint chosen, the JPG leaf first on the clover">
 </p>
 
 ## Build from source
@@ -252,3 +253,5 @@ To try the updater without a release, point a copy at a local feed: `Clover.app/
 ## License
 
 Clover is free and open source under the [MIT License](LICENSE). © 2026 Irfan Abdul Hameed.
+
+The distortion wave and the border beam are ported from Jakub Antalik's [Distortion Waves and Border Beam](https://github.com/Jakubantalik/Libraries.dev) ([libraries.dev](https://libraries.dev)), MIT License, © 2026 Jakub Antalik. Their notices are kept in the files that carry their code.

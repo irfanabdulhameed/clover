@@ -30,17 +30,21 @@ enum DemoRender {
 
     // MARK: The script, in seconds from the first frame
 
-    static let length = 6.5
     /// The shortcut opens the clover at the pointer, with the photo selected in Finder.
     static let openAt = 0.55
     /// The button goes down on JPG and comes up on it.
     static let pressAt = 2.95
     static let releaseAt = 3.20
-    /// After the drop: the job's progress, and when it is done.
-    static let progress: [(at: Double, value: Double)] = [(0, 0), (0.6, 0.55), (0.9, 0.9)]
-    static let doneAt = 1.2
-    /// How long the result stays before it is dismissed (5 s in the app).
-    static let doneHold = 1.2
+    /// After the drop: the job's progress, and when it is done, as the result chip takes
+    /// the ring over once the distortion wave has played.
+    static var progress: [(at: Double, value: Double)] {
+        let w = Motion.Drop.afterWave
+        return [(0, 0), (0.6 + w, 0.55), (0.9 + w, 0.9)]
+    }
+    static var doneAt: Double { 1.2 + Motion.Drop.afterWave }
+    /// How long the result stays before it is dismissed (5 s in the app): long enough for
+    /// the border beam's two laps.
+    static var doneHold: Double { max(1.2, BorderBeams.available ? BorderBeams.duration + 0.3 : 0) }
 
     /// Where the pointer is, in clover coordinates (y down, the hub's centre at zero), and
     /// how it travels: rests, and glides with a human ease along a slight curve.
@@ -116,6 +120,8 @@ enum DemoRender {
         dry.end(.done, at: doneAt)
         let flip = dry.ending?.at ?? doneAt
         let leaveAt = flip + doneHold
+        // The pointer goes home after the chip has left, and rests there a moment.
+        let length = releaseAt + leaveAt + 0.09 + 0.45 + 0.6
         var chipEvents: [(at: Double, apply: (inout ChipPlayback) -> Void)] = progress.map { p in
             (p.at, { $0.progress(p.value, at: p.at) })
         }
