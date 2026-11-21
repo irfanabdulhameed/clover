@@ -151,7 +151,8 @@ constant half3 spectrum[spectrumSamples] = {
     if (side > 0.0) {
         if (f[17] > 0.5) cover = smoothstep(-coverZone, coverZone, w.d);
         if (cover <= 0.0) return half4(0.0);
-    } else if (w.d > coverZone + 6.0) {
+    } else if (side < 0.0 && w.d > coverZone + 6.0) {
+        // Side 0 (Clover): the same content on both sides of the front, never covered.
         return half4(0.0);
     }
 
@@ -320,7 +321,10 @@ static float3 paletteAt(device const float *palette, int count, float u) {
     float glow = f[11], rim = f[13];
     float2 size = float2(f[8], f[9]);
     float2 c = p - size * 0.5;
-    float inset = max(-continuousRectSDF(c, size * 0.5, cornerRadius), 0.0);
+    // A round view (Clover's disc): the distance in from its circle. The continuous
+    // corner would sit outside a circle on the diagonals.
+    bool round = cornerRadius * 2.0 >= min(size.x, size.y) - 0.5;
+    float inset = round ? max(cornerRadius - length(c), 0.0) : max(-continuousRectSDF(c, size * 0.5, cornerRadius), 0.0);
     // Further in than this, even the thickest lump has faded to nothing, and
     // the hairline is far behind.
     bool nearEdge = rim > 0.0 && inset < max(rimWidth * 2.2 * (1.0 + 1.9 * unevenness), hairWidth * 0.5 + 0.75);
