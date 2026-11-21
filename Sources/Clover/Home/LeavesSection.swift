@@ -181,6 +181,9 @@ enum LeafEditing {
 struct LeavesSection: View {
     let catalog: Catalog
     @Binding var layouts: [LayoutKey: LeafLayout]
+    @Binding var glassTint: GlassTint
+    /// No wave on the preview when motion is reduced.
+    var reduceMotion = false
     @State private var key: LayoutKey
     @State private var selected: String?
     @State private var hovered: String?
@@ -188,9 +191,12 @@ struct LeavesSection: View {
     @State private var confirmingReset = false
     @State private var memo = TargetMemo()
 
-    init(catalog: Catalog, layouts: Binding<[LayoutKey: LeafLayout]>, forced: DashboardForced = DashboardForced()) {
+    init(catalog: Catalog, layouts: Binding<[LayoutKey: LeafLayout]>, glassTint: Binding<GlassTint>,
+         reduceMotion: Bool = false, forced: DashboardForced = DashboardForced()) {
         self.catalog = catalog
         _layouts = layouts
+        _glassTint = glassTint
+        self.reduceMotion = reduceMotion
         _key = State(initialValue: forced.leafKey ?? .image)
         _selected = State(initialValue: forced.leafSelected)
         _hovered = State(initialValue: forced.leafHovered)
@@ -319,6 +325,7 @@ struct LeavesSection: View {
             ZStack {
                 PreviewBackdrop()
                 CloverPreview(arrangement: arrangement, highlighted: hovered ?? selected,
+                              playsWave: !reduceMotion,
                               onLeaf: { id in
                                   guard let id else { return }
                                   selected = id
@@ -343,6 +350,19 @@ struct LeavesSection: View {
                 .truncationMode(.tail)
                 .frame(width: width)
                 .accessibilityLabel(caption)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Glass tint")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                // Full size when it fits, smaller swatches in the narrowest window.
+                ViewThatFits(in: .horizontal) {
+                    TintPicker(tint: $glassTint)
+                    TintPicker(tint: $glassTint, compact: true)
+                }
+                .frame(width: width, alignment: .leading)
+            }
+            .padding(.top, 6)
+            .frame(width: width, alignment: .leading)
         }
         .frame(width: width)
     }

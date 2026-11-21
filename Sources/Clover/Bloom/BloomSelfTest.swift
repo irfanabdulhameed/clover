@@ -798,6 +798,23 @@ enum BloomSelfTest {
         expect(lifts.max()! <= M.Drop.chooseLift + 0.0001, "with no overshoot")
         expect(M.chosenGlow(e, now: d0 + M.Drop.choose) > 0.99 && M.chosenGlow(e, now: d0 + M.Drop.glideStart + M.Drop.glowOut + 0.001) == 0,
                "a soft inner glow comes up with it and goes as it glides")
+        // The distortion wave: from the chosen leaf, out and never back, gone before the ring.
+        if M.Distort.enabled {
+            let D = M.Distort.self
+            expect(M.distortWave(e, now: d0 + 0.01, origin: origin) == nil && (M.distortWave(e, now: d0 + D.start + 1e-6, origin: origin)?.radius ?? 1) < 0.5,
+                   "the distortion wave sets off at 20 ms from the leaf's middle")
+            let radii = (0..<100).compactMap { M.distortWave(e, now: d0 + D.start + 1e-6 + (D.rimClearAt + D.rimClear - D.start - 0.002) * Double($0) / 100, origin: origin)?.radius }
+            expect(radii.count == 100 && zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 }, "its front only moves out")
+            expect(M.distortWave(e, now: d0 + D.rimClearAt + D.rimClear + 0.001, origin: origin) == nil
+                   && D.rimClearAt + D.rimClear <= M.Drop.discAt + M.Drop.disc, "and is gone by the time the disc has drawn in")
+            let far = M.distortWave(e, now: d0 + D.start + D.travel * D.settleEnd + 0.001, origin: origin)
+            expect(far?.energy ?? 1 < 0.001, "the band has settled by then, leaving only the rim")
+            let bent = M.bend(centers[0], origin: origin, e, now: d0 + 0.2)
+            expect(bent.scale <= D.bendScale + 1e-6 && bent.blur <= D.bendBlur + 1e-6, "the leaves bend no more than the limits")
+            var rd = e
+            rd.reduce = true
+            expect(M.distortWave(rd, now: d0 + 0.1, origin: origin) == nil, "reduce motion: no distortion wave")
+        }
         // The leaves in order of distance from the chosen one.
         let order = (0..<6).filter { $0 != 1 }.sorted { L.distance(centers[$0], origin) < L.distance(centers[$1], origin) }
         if M.Drop.waveEnabled {

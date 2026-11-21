@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Engines: where each command-line tool was found, or how to install it.
-struct EnginesPane: View {
+/// The engines: where each command-line tool was found, or how to install it. Two form
+/// sections, shown in General.
+struct EngineSections: View {
     let engines: [EngineInfo]
     let refresh: () -> Void
 
@@ -15,29 +16,23 @@ struct EnginesPane: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                ForEach(engines) { engine in
-                    EngineDetail(engine: engine)
-                }
-            } header: {
-                Text("Command-line tools")
-            } footer: {
-                FormFooter("Images, PDFs, documents and archives need no extra tools. Clover looks in /opt/homebrew/bin, /usr/local/bin and /opt/local/bin, then your PATH.")
+        Section {
+            ForEach(engines) { engine in
+                EngineDetail(engine: engine)
             }
-
-            Section {
-                LabeledContent {
-                    Button("Refresh", action: refresh)
-                        .help("Look for the engines again")
-                } label: {
-                    Text(summary)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            LabeledContent {
+                Button("Refresh", action: refresh)
+                    .help("Look for the engines again")
+            } label: {
+                Text(summary)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        } header: {
+            Text("Engines")
+        } footer: {
+            FormFooter("Images, PDFs, documents and archives need no extra tools. Clover looks in /opt/homebrew/bin, /usr/local/bin and /opt/local/bin, then your PATH.")
         }
-        .formStyle(.grouped)
     }
 }
 

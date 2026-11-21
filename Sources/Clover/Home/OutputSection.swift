@@ -2,13 +2,11 @@ import AppKit
 import SwiftUI
 import CloverCore
 
-/// Output: where converted files go, what they are called, and what happens after.
+/// Saving: where converted files go, what they are called, and what happens after.
 struct OutputSection: View {
     @Binding var conversion: ConversionSettings
     @Binding var outputFolder: URL?
     @Binding var revealAfterConverting: Bool
-    let login: LoginState
-    let actions: DashboardActions
 
     private enum Place: Hashable { case besideOriginal, folder }
 
@@ -21,7 +19,6 @@ struct OutputSection: View {
             nameSection
             conflictSection
             afterSection
-            startupSection
         }
         .formStyle(.grouped)
     }
@@ -174,31 +171,6 @@ struct OutputSection: View {
             Text("After converting")
         } footer: {
             FormFooter("Opens the folder with the new files selected.")
-        }
-    }
-
-    // MARK: Startup
-
-    private var startupSection: some View {
-        Section {
-            Toggle("Open at login", isOn: Binding(get: { login.isEnabled }, set: actions.setLaunchAtLogin))
-            if let message = login.message {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(message)
-                            .font(.callout)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if login.needsApproval {
-                            Button("Open Login Items…", action: actions.openLoginItems)
-                        }
-                    }
-                }
-            } else if !login.inApplications {
-                Hint("Clover is running from outside an Applications folder. Move it there for Open at login to work reliably.")
-            }
-        } header: {
-            Text("Startup")
         }
     }
 }

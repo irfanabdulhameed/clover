@@ -65,6 +65,10 @@ struct BloomScene: View {
             if let wave {
                 WaveFront(origin: offset(origin, center), wave: wave, side: side)
             }
+            if let front = Motion.distortWave(e, now: now, origin: origin) {
+                DropRippleView(origin: offset(origin, center), front: front, side: side,
+                               discScale: Motion.disc(e, now: now).scale)
+            }
             ForEach(Array(e.ripples.enumerated()), id: \.offset) { _, ripple in
                 if ripple.slot < count, let r = Motion.ripple(ripple, e, now: now) {
                     Path(SlotView.localPath(ripple.slot, count))

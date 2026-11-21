@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shortcuts: the drag key, hold to open, and the keyboard shortcut.
+/// Controls: the drag key, hold to open, and the keyboard shortcut.
 struct ShortcutsSection: View {
     @Binding var triggerKey: TriggerKey
     @Binding var holdToOpen: Bool

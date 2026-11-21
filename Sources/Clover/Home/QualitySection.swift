@@ -53,7 +53,7 @@ struct QualitySection: View {
     private static let gifWidths: [Double] = [240, 320, 400, 480, 560, 640, 720, 800, 960]
     private static let videoHeights = [360, 480, 540, 720]
 
-    /// The quality settings as they come out of the box. Naming is kept: it lives in Output.
+    /// The quality settings as they come out of the box. Naming is kept: it lives in Saving.
     private var defaults: ConversionSettings {
         var fresh = ConversionSettings()
         fresh.namePattern = conversion.namePattern

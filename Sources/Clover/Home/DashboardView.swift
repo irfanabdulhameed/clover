@@ -2,44 +2,48 @@ import AppKit
 import SwiftUI
 import CloverCore
 
-/// The places in the Dashboard, in sidebar order.
+/// The places in the Dashboard, in sidebar order: Home, the settings under Customize,
+/// then History.
 enum DashboardSection: String, CaseIterable, Identifiable {
-    case leaves, quality, output, shortcuts, feel, history, engines
+    case home, clover, quality, saving, controls, general, history
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .leaves: "Leaves"
+        case .home: "Home"
+        case .clover: "Clover"
         case .quality: "Quality"
-        case .output: "Output"
-        case .shortcuts: "Shortcuts"
-        case .feel: "Feel"
+        case .saving: "Saving"
+        case .controls: "Controls"
+        case .general: "General"
         case .history: "History"
-        case .engines: "Engines"
         }
     }
 
     var symbol: String {
         switch self {
-        case .leaves: "leaf"
+        case .home: "house"
+        case .clover: "leaf"
         case .quality: "slider.horizontal.3"
-        case .output: "folder"
-        case .shortcuts: "keyboard"
-        case .feel: "hand.tap"
+        case .saving: "folder"
+        case .controls: "keyboard"
+        case .general: "gearshape"
         case .history: "clock.arrow.circlepath"
-        case .engines: "wrench.and.screwdriver"
         }
     }
+
+    /// The settings pages, grouped under Customize in the sidebar.
+    static let settings: [DashboardSection] = [.clover, .quality, .saving, .controls, .general]
 }
 
 /// Which section the Dashboard shows. Held outside the view so the app can switch it.
 @MainActor
 final class DashboardNavigator: ObservableObject {
-    @Published var section = DashboardSection.leaves
+    @Published var section = DashboardSection.home
 }
 
-/// How "Open at login" stands, for the Output section.
+/// How "Open at login" stands, for the General section.
 struct LoginState: Equatable {
     var isEnabled = false
     /// Why the last change didn't work, in words the user can act on.
@@ -50,6 +54,8 @@ struct LoginState: Equatable {
 
 /// What the Dashboard can ask the app to do.
 struct DashboardActions {
+    var chooseFiles: () -> Void = {}
+    var filesDropped: ([URL]) -> Void = { _ in }
     var reveal: (RecentItem) -> Void
     var open: (RecentItem) -> Void
     var convertAgain: (RecentItem) -> Void
@@ -175,9 +181,12 @@ struct DashboardView: View {
 
     private var sidebar: some View {
         List(selection: Binding<DashboardSection?>(get: { section }, set: { if let new = $0 { section = new } })) {
-            ForEach(DashboardSection.allCases) { item in
-                Label(item.title, systemImage: item.symbol)
-                    .tag(item)
+            row(.home)
+            Section("Customize") {
+                ForEach(DashboardSection.settings) { row($0) }
+            }
+            Section {
+                row(.history)
             }
         }
         .listStyle(.sidebar)
@@ -185,25 +194,31 @@ struct DashboardView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { AboutBlock(checkForUpdates: actions.checkForUpdates) }
     }
 
+    private func row(_ item: DashboardSection) -> some View {
+        Label(item.title, systemImage: item.symbol).tag(item)
+    }
+
     @ViewBuilder private var detail: some View {
         switch section {
-        case .leaves:
-            LeavesSection(catalog: data.catalog, layouts: data.layouts, forced: data.forced)
+        case .home:
+            DashboardHome(items: data.items, engines: data.engines, trigger: data.triggerKey.wrappedValue,
+                          actions: actions, go: { section = $0 })
+        case .clover:
+            LeavesSection(catalog: data.catalog, layouts: data.layouts, glassTint: data.glassTint,
+                          reduceMotion: data.motion.wrappedValue.reduces, forced: data.forced)
         case .quality:
             QualitySection(conversion: data.conversion)
-        case .output:
+        case .saving:
             OutputSection(conversion: data.conversion, outputFolder: data.outputFolder,
-                          revealAfterConverting: data.revealAfterConverting, login: data.login, actions: actions)
-        case .shortcuts:
+                          revealAfterConverting: data.revealAfterConverting)
+        case .controls:
             ShortcutsSection(triggerKey: data.triggerKey, holdToOpen: data.holdToOpen, hotkey: data.hotkey,
                              forceRecording: data.forced.recording, forceRejected: data.forced.rejected)
-        case .feel:
-            FeelSection(motion: data.motion, haptics: data.haptics, completionSound: data.completionSound,
-                        glassTint: data.glassTint)
+        case .general:
+            GeneralSection(motion: data.motion, haptics: data.haptics, completionSound: data.completionSound,
+                           login: data.login, engines: data.engines, actions: actions)
         case .history:
             HistorySection(items: data.items, actions: actions, initialQuery: data.forced.query)
-        case .engines:
-            EnginesPane(engines: data.engines, refresh: actions.refreshTools)
         }
     }
 }
@@ -288,5 +303,16 @@ struct FormFooter: View {
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension MotionPreference {
+    /// True when motion should be reduced, from this choice or the system's.
+    var reduces: Bool {
+        switch self {
+        case .system: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        case .full: false
+        case .reduced: true
+        }
     }
 }

@@ -90,7 +90,8 @@ final class BloomController: BloomInteractionDelegate {
                 ChipView(title: "Balanced", isDefault: true, isLit: false, isFocused: false, hue: .orange)
                 // The wave of light and the ring, so the first choice isn't the first time.
                 let side = BloomGeometry.panelSize
-                WaveFront(origin: CGPoint(x: side / 2, y: side / 2 - 100), wave: Wave(radius: 120, strength: 1), side: side)
+                DropRippleView(origin: CGPoint(x: side / 2, y: side / 2 - 100),
+                               front: RippleFront(radius: 120, energy: 1, rimKept: 1, time: 0.1, moved: 0.5), side: side)
                 ChipRing(progress: 0, diameter: Motion.Drop.ringSide)
             }.environment(\.bloomSnapshot, true))
             _ = warm.cgImage

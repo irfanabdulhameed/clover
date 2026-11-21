@@ -1,71 +1,16 @@
 import SwiftUI
 
-/// Feel: how much Clover moves, and its touch and sound.
-struct FeelSection: View {
-    @Binding var motion: MotionPreference
-    @Binding var haptics: Bool
-    @Binding var completionSound: Bool
-    @Binding var glassTint: GlassTint
-
-    var body: some View {
-        Form {
-            Section {
-                Picker("Motion", selection: $motion) {
-                    ForEach(MotionPreference.allCases) { choice in
-                        Text(choice.title).tag(choice)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            } header: {
-                Text("Motion")
-            } footer: {
-                FormFooter("Reduced uses fades only. Follow the system uses Reduce motion in System Settings.")
-            }
-
-            Section {
-                Toggle("Haptic taps", isOn: $haptics)
-            } header: {
-                Text("Haptics")
-            } footer: {
-                FormFooter("A small tap on the trackpad when a leaf lights up, when you drop and when a conversion finishes.")
-            }
-
-            Section {
-                Toggle("Finish sound", isOn: $completionSound)
-                LabeledContent("Preview") {
-                    Button("Play") { ChipFeedback.playFinishSound(force: true) }
-                        .help("Hear the finish sound")
-                }
-            } header: {
-                Text("Sound")
-            } footer: {
-                FormFooter("A soft sound when a conversion finishes, once however many files it holds.")
-            }
-
-            Section {
-                LabeledContent("Glass tint") {
-                    TintPicker(tint: $glassTint)
-                }
-            } header: {
-                Text("Glass")
-            } footer: {
-                FormFooter("Lightly tints the glass of the clover and the More tray, so labels stay clear. None is clear glass. A hovered leaf stays neutral.")
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
 /// The glass tint: none, the preset swatches, and a colour well for any colour. The chosen
 /// one has a ring.
 struct TintPicker: View {
     @Binding var tint: GlassTint
+    /// Smaller swatches, closer together, for a narrow column.
+    var compact = false
     /// The colour last picked in the well, kept while a preset is chosen.
     @State private var lastCustom: UInt32 = 0x4AA3A2
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: compact ? 3 : 6) {
             swatch(.none)
             ForEach(GlassTint.Preset.allCases) { preset in
                 swatch(.preset(preset))
@@ -83,6 +28,8 @@ struct TintPicker: View {
         }
     }
 
+    private var side: CGFloat { compact ? 16 : 18 }
+
     private func swatch(_ choice: GlassTint) -> some View {
         let chosen = tint == choice
         return Button {
@@ -94,13 +41,13 @@ struct TintPicker: View {
                 } else {
                     // None: clear glass, crossed out.
                     Circle().fill(Color(nsColor: .textBackgroundColor))
-                    Rectangle().fill(Color.red.opacity(0.8)).frame(width: 1.5, height: 18).rotationEffect(.degrees(45))
+                    Rectangle().fill(Color.red.opacity(0.8)).frame(width: 1.5, height: side).rotationEffect(.degrees(45))
                 }
                 Circle().strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.5)
             }
-            .frame(width: 18, height: 18)
+            .frame(width: side, height: side)
             .clipShape(Circle())
-            .padding(3)
+            .padding(compact ? 2 : 3)
             .overlay {
                 if chosen { Circle().strokeBorder(Color.accentColor, lineWidth: 2) }
             }

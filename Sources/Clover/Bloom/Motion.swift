@@ -446,6 +446,9 @@ extension Motion {
             let t = now - drop.at
             if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
             var look = nudged(.zero, origin: origin, t: t, shift: Drop.hubNudgeShift, scale: Drop.hubNudgeScale)
+            let bent = bend(.zero, origin: origin, e, now: now)
+            look.scale *= 1 + (bent.scale - 1) * 0.5
+            look.blur += bent.blur * 0.5
             let p = settle(phase(t, Drop.hubShrinkAt, Drop.hubShrink))
             look.scale *= lerp(1, Drop.ringSide / BloomGeometry.hubSize, p)
             return look
@@ -494,6 +497,11 @@ extension Motion {
             if e.reduce { return (Look(opacity: Hover.dimOpacity * (1 - phase(t, 0, fade))), .frosted) }
             // Nudged when the wave reaches it, then folded to the hub, the farthest last.
             var look = nudged(center, origin: origin, t: t, shift: Drop.nudgeShift, scale: Drop.nudgeScale)
+            // Bent and softened as the distortion wave passes.
+            let bent = bend(center, origin: origin, e, now: now)
+            look.scale *= bent.scale
+            look.offset.width += bent.offset.width
+            look.offset.height += bent.offset.height
             let distance = hypot(center.x - origin.x, center.y - origin.y)
             let start = Drop.gatherAt + Drop.gatherStagger * Double(min(distance / waveReach(origin), 1))
             let p = settle(phase(t, start, Drop.fold))
@@ -501,7 +509,7 @@ extension Motion {
             look.scale *= s
             look.offset.width += center.x * (s - 1)
             look.offset.height += center.y * (s - 1)
-            look.blur = lerp(0, Drop.foldBlur, p)
+            look.blur = lerp(0, Drop.foldBlur, p) + bent.blur
             look.opacity = Hover.dimOpacity * (1 - p)
             return (look, .frosted)
         }

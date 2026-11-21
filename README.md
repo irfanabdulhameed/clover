@@ -125,15 +125,15 @@ Open it from the menu bar icon (**Dashboard**, <kbd>⌘</kbd><kbd>,</kbd>), or o
   <img src="docs/images/clover-dashboard-leaves.png" width="560" alt="Clover dashboard, Leaves page: tabs for Images, PDF, Docs, Video, Audio, Archives and Mixed, a live preview of the clover, and a list of formats grouped into On the clover and In More">
 </p>
 
-| Page | What you can change |
+| Page | What you see or change |
 |---|---|
-| **Leaves** | Which formats sit on the clover for each kind of file, their order, which are hidden, and each leaf's default option. A live preview shows the result. |
+| **Home** | A drop zone to convert files, what Clover made in the last 7 days (files, conversions, space saved), your latest conversions, and a note if an engine is missing. |
+| **Clover** | Which formats sit on the clover for each kind of file, their order, which are hidden, each leaf's default option, and the glass tint. Click a leaf in the live preview to see the wave it plays. |
 | **Quality** | What Best, Balanced and Small mean: image quality, video quality and size, audio bitrate, GIF width. |
-| **Output** | Where files go (beside the original or a folder), the name pattern (`{name}`, `{format}`, `{option}`), replacing or numbering, and showing results in Finder. |
-| **Shortcuts** | The key you hold while dragging, hold-to-open, and the global shortcut. |
-| **Feel** | Glass tint (none, presets or any colour), motion, haptic taps and the finish sound. |
+| **Saving** | Where files go (beside the original or a folder), the name pattern (`{name}`, `{format}`, `{option}`), replacing or numbering, and showing results in Finder. |
+| **Controls** | The key you hold while dragging, hold-to-open, and the global shortcut. |
+| **General** | Motion, haptic taps and the finish sound, Open at login, updates, and whether ffmpeg and cwebp are installed. |
 | **History** | Every conversion, with search, Show in Finder and Convert again. |
-| **Engines** | Whether ffmpeg and cwebp are installed, and how to install them. |
 
 <p align="center">
   <img src="docs/images/clover-dashboard-feel.png" width="560" alt="Clover dashboard, Feel page: motion, haptics, finish sound and a glass tint picker with preset colours and a custom colour">
@@ -166,7 +166,7 @@ open ~/Applications/Clover.app
 
 The clover icon appears in the menu bar. The first time you use **Hold and Shift** or the shortcut, macOS asks to let Clover control Finder; that's how Clover reads which files are selected.
 
-To start Clover when you log in, turn on **Open at login** in Dashboard › Output. A copy you build yourself also checks for updates, and **Update Now** replaces it with the released version.
+To start Clover when you log in, turn on **Open at login** in Dashboard › General. A copy you build yourself also checks for updates, and **Update Now** replaces it with the released version.
 
 ## Command line
 
@@ -205,7 +205,7 @@ Yes. Drop a video on **GIF** and choose Large, Medium or Small.
 Yes. Drag several PDFs and drop them on **Merge**, or drag several images and drop them on **PDF**, then choose **One PDF**.
 
 ### Why don't I see WebP, video or audio formats?
-Those need extra engines. Run `brew install ffmpeg webp`, then press **Refresh** in Dashboard › Engines.
+Those need extra engines. Run `brew install ffmpeg webp`, then press **Refresh** in Dashboard › General.
 
 ### How do I add Clover to Finder's right-click menu?
 Clover adds **Convert with Clover** under **Services**. If you don't see it, turn it on in System Settings › Keyboard › Keyboard Shortcuts › Services.
@@ -214,7 +214,7 @@ Clover adds **Convert with Clover** under **Services**. If you don't see it, tur
 No. Every conversion happens on your Mac. The only thing Clover fetches from the internet is its own updates, from GitHub, and it sends nothing about your files.
 
 ### How does Clover update itself?
-On Wi-Fi or Ethernet, Clover asks GitHub now and then whether a newer version is out. When one is, a window lists what changed in every version since yours. **Update Now** downloads it, replaces Clover (the old copy goes to the Trash) and opens the new one; **Later** asks again the next day or the next time Clover starts. After an update, macOS may ask once more to let Clover control Finder. To check yourself, right-click the menu bar icon and choose **Check for Updates…**, or use the button at the bottom of the dashboard's sidebar.
+On Wi-Fi or Ethernet, Clover asks GitHub now and then whether a newer version is out. When one is, a window lists what changed in every version since yours. **Update Now** downloads it, replaces Clover (the old copy goes to the Trash) and opens the new one; **Later** asks again the next day or the next time Clover starts. After an update, macOS may ask once more to let Clover control Finder. To check yourself, right-click the menu bar icon and choose **Check for Updates…**, or use **Check for Updates** in Dashboard › General or at the bottom of the dashboard's sidebar.
 
 ### macOS says Clover can't be opened
 Clover isn't notarized by Apple yet. Follow the three steps under [Download](#download): open it once, then click **Open Anyway** in System Settings › Privacy & Security. Updates installed by Clover itself don't ask again.

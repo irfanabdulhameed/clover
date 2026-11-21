@@ -57,7 +57,7 @@ final class BloomModel: ObservableObject {
     @Published var events = BloomEvents()
     /// True while something moves: the view's frame clock runs only then.
     @Published private(set) var animating = false
-    /// The glass's tint (Settings → Feel → Glass tint); none is clear glass.
+    /// The glass's tint (Dashboard → Clover → Glass tint); none is clear glass.
     @Published var tint = GlassTint.none
     /// The point of the tray, as a fraction of its size, that it grows out of: the side
     /// nearest the More slot. Set by the controller when it places the tray.

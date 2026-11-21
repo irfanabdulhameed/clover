@@ -71,6 +71,11 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
 
     private func makeActions() -> DashboardActions {
         DashboardActions(
+            chooseFiles: { [weak self] in self?.chooseFiles() },
+            filesDropped: { [weak self] files in
+                // The pointer is where the files were dropped, so the clover opens right there.
+                MainActor.assumeIsolated { self?.bloom.present(files: files, at: NSEvent.mouseLocation) }
+            },
             reveal: { [weak self] item in
                 guard let files = self?.existingOutputs(of: item), !files.isEmpty else { return }
                 NSWorkspace.shared.activateFileViewerSelecting(files)
@@ -90,6 +95,24 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
             setLaunchAtLogin: { [login] on in login.setEnabled(on) },
             openLoginItems: { [login] in login.openLoginItemsSettings() },
             checkForUpdates: checkForUpdates)
+    }
+
+    /// Home's drop zone, clicked: choose files in a sheet, then the clover opens over the window.
+    private func chooseFiles() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Choose"
+        panel.message = "Choose the files to convert."
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, !panel.urls.isEmpty else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let frame = self.window.frame
+                self.bloom.present(files: panel.urls, at: NSPoint(x: frame.midX, y: frame.midY))
+            }
+        }
     }
 
     private func existingOutputs(of item: RecentItem) -> [URL] {
