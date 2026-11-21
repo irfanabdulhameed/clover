@@ -71,10 +71,10 @@ enum ChipRender {
         let failFlip = failed.ending?.at ?? 0.68
 
         var undone = done
-        undone.end(.undone, at: 3)
+        undone.end(.undone, at: flip + 2.4)
 
         var leaving = done
-        leaving.leave(at: 3)
+        leaving.leave(at: flip + 2.4)
 
         var reduced = ChipPlayback(reduced: true, ringStart: .zero)
         reduced.progress(0.6, at: 0.1)
@@ -89,15 +89,17 @@ enum ChipRender {
             Sequence(name: "3-entrance-no-clover", playback: born, frames: [0, 0.04, 0.08, 0.15, 0.4].map { (ms($0), $0) }, kind: .running),
             Sequence(name: "4-done", playback: done,
                      frames: [-0.017, 0, 0.09, 0.25, 0.5, 0.8].map { ("flip " + ($0 < 0 ? "-17 ms" : ms($0)), flip + $0) }),
+            Sequence(name: "4b-done-beam", playback: done,
+                     frames: [0.2, 0.7, 1.2, 1.96, 2.6, 3.3, 3.9].map { ("beam " + ms($0), flip + $0) }),
             Sequence(name: "5-failed", playback: failed,
                      frames: [-0.017, 0, 0.1, 0.2, 0.3, 0.6].map { ("flip " + ($0 < 0 ? "-17 ms" : ms($0)), failFlip + $0) }, kind: .failed),
             // Three swings of 100 ms each: the chip is back in the middle at 100, 200 and 300 ms, so the swings are drawn between.
             Sequence(name: "5b-failed-swings", playback: failed,
                      frames: [0.025, 0.075, 0.125, 0.175, 0.225, 0.275].map { ("flip " + ms($0), failFlip + $0) }, kind: .failed),
             Sequence(name: "6-undone", playback: undone,
-                     frames: [0, 0.04, 0.075, 0.15, 0.4].map { ("undo " + ms($0), 3 + $0) }, kind: .undone),
+                     frames: [0, 0.04, 0.075, 0.15, 0.4].map { ("undo " + ms($0), flip + 2.4 + $0) }, kind: .undone),
             Sequence(name: "7-exit", playback: leaving,
-                     frames: [-0.017, 0.04, 0.08, 0.12, 0.16].map { ("exit " + ($0 < 0 ? "-17 ms" : ms($0)), 3 + $0) }),
+                     frames: [-0.017, 0.04, 0.08, 0.12, 0.16].map { ("exit " + ($0 < 0 ? "-17 ms" : ms($0)), flip + 2.4 + $0) }),
             Sequence(name: "8-reduced-motion", playback: reduced,
                      frames: [0.38, 0.4575, 0.52, reducedFlip, reducedFlip + 0.075, reducedFlip + 0.15].map { (ms($0), $0) }),
             Sequence(name: "9-reduced-failed", playback: reducedFailed,
@@ -246,7 +248,8 @@ enum ChipRender {
               ? (done.values(at: flip + 0.02).textOpacity == 0 && done.values(at: flip + 0.3).textOpacity == 1)
               : done.values(at: flip).textOpacity == 1,
               "the words come with the flip (after it, when text is animated)")
-        check(done.isSettled(at: flip + 1.2) && !done.isSettled(at: flip + 0.1), "the clock can stop after the ending")
+        let settles = 1.2 + (BorderBeams.available ? BorderBeams.duration : 0)
+        check(done.isSettled(at: flip + settles) && !done.isSettled(at: flip + 0.1), "the clock can stop after the ending (and the beam)")
 
         // Failed: the Mac's shake. Three swings, 8 pt, 300 ms, dying away.
         let shake = times(0, 0.31).map { ChipMotion.shake($0) }
@@ -274,25 +277,26 @@ enum ChipRender {
         check(fill.adjacentPairs().allSatisfy { abs($1 - $0) < 0.03 }, "and never jumps")
 
         // Exit: faster than the entrance, fades, blurs, shrinks.
+        let later = flip + 2.4
         var leaving = done
-        leaving.leave(at: 3)
-        let exit = times(3, 3.3).map { leaving.values(at: $0) }
+        leaving.leave(at: later)
+        let exit = times(later, later + 0.3).map { leaving.values(at: $0) }
         check(exit.map(\.opacity).adjacentPairs().allSatisfy { $0 >= $1 - 0.001 } && (exit.last?.opacity ?? 1) < 0.001, "fades out")
         check((exit.last?.blur ?? 0) > 7.9 && (exit.last?.scale ?? 1) < 0.93, "blurs and shrinks")
         check(ChipMotion.exitDuration < ChipMotion.grow, "exits are faster than entrances")
-        check(leaving.values(at: 3 + ChipMotion.exitDuration + 0.001).isHidden, "gone after 160 ms")
+        check(leaving.values(at: later + ChipMotion.exitDuration + 0.001).isHidden, "gone after 160 ms")
 
         // Undone: a short fade, no pop.
         var undone = done
-        undone.end(.undone, at: 3)
-        check(undone.values(at: 3).pop == 1 && undone.values(at: 3).textOpacity == 0 && undone.values(at: 3.2).textOpacity == 1, "undone fades its words in, no pop")
+        undone.end(.undone, at: later)
+        check(undone.values(at: later).pop == 1 && undone.values(at: later).textOpacity == 0 && undone.values(at: later + 0.2).textOpacity == 1, "undone fades its words in, no pop")
 
         // Reduced motion: only fades. The ring still fills.
         var reduced = ChipPlayback(reduced: true, ringStart: CGSize(width: -70, height: 14))
         reduced.progress(0.6, at: 0.1)
         reduced.end(.failed, at: 0.5)
-        reduced.leave(at: 3)
-        let calm = times(0, 3.5).map { reduced.values(at: $0) }
+        reduced.leave(at: ChipMotion.ringAppearDelay + 2.5)
+        let calm = times(0, ChipMotion.ringAppearDelay + 3).map { reduced.values(at: $0) }
         check(calm.allSatisfy { $0.offset == .zero && $0.scale == 1 && $0.blur == 0 && $0.pop == 1 && $0.ripple == nil && $0.textBlur == 0 && $0.width == ChipMotion.chipSize.width },
               "reduced motion: no travel, scale, blur, pop, ripple or shake")
         check(calm.map(\.opacity).max() == 1 && calm.map(\.opacity).min() == 0, "reduced motion: fades")

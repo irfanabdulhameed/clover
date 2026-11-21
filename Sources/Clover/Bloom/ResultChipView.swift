@@ -264,6 +264,20 @@ struct ResultChipView: View {
                 .frame(width: v.width, height: ResultChipView.size.height, alignment: .leading)
                 .clipShape(shape)
                 .modifier(ChipGlassModifier(cornerRadius: corner, clover: clover))
+                .overlay {
+                    if let age = v.beamAge {
+                        // libraries.dev/beam, Rotate · Large · Colorful: twice round, fading out.
+                        RotateBeamLayers(
+                            config: RotateBeamConfig(
+                                size: .md, variant: .colorful, theme: scheme == .dark ? "dark" : "light",
+                                staticColors: false, duration: BeamSpec.shared.defaults.duration.rotate,
+                                borderRadius: Double(corner), brightness: nil, saturation: nil,
+                                hueRange: 30, strength: 1),
+                            fade: BorderBeams.fade(age), time: age)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+                }
                 .background {
                     if !snapshot { ChipHoverTracker(onChange: actions.hover) }
                 }

@@ -141,6 +141,8 @@ struct ChipValues: Equatable {
     var showsRunning = false
     /// 0...1 over the ripple, nil when there is none.
     var ripple: Double?
+    /// Seconds since a finished chip's border beam started, nil when there is none.
+    var beamAge: Double?
     /// Nothing travels or pops: set by reduce motion.
     var reduced = false
 
@@ -247,6 +249,7 @@ struct ChipPlayback {
         if let ending {
             return t > ending.at + ChipMotion.failureTextDelay + ChipMotion.textDuration + 0.1
                 + (ending.kind == .done && ChipMotion.rippleEnabled ? ChipMotion.rippleDuration : 0)
+                && !(ending.kind == .done && !reduced && BorderBeams.available && t < ending.at + BorderBeams.duration + 0.05)
         }
         return abs(displayed(at: t) - target) < 0.0005
     }
@@ -326,6 +329,10 @@ struct ChipPlayback {
                     if ChipMotion.textAnimated, since < ChipMotion.resultTextDelay { words = 0 }
                     if ChipMotion.rippleEnabled, ending.kind == .done, since < ChipMotion.rippleDuration {
                         v.ripple = since / ChipMotion.rippleDuration
+                    }
+                    // Done: the border beam goes twice round the chip, fading out.
+                    if ending.kind == .done, BorderBeams.available, since < BorderBeams.duration {
+                        v.beamAge = since
                     }
                 }
             }

@@ -9,20 +9,7 @@ import SwiftUI
 @MainActor
 enum DistortionWaves {
     /// The compiled shaders, or nil when the metallib isn't there: then there is no wave.
-    nonisolated(unsafe) static let library: ShaderLibrary? = {
-        if let url = Bundle.main.url(forResource: "DistortionWaves", withExtension: "metallib") {
-            return ShaderLibrary(url: url)
-        }
-        // A debug run from .build: the file in the source tree, found up from the binary.
-        var dir = Bundle.main.executableURL?.deletingLastPathComponent()
-        for _ in 0..<6 {
-            guard let d = dir else { break }
-            let url = d.appendingPathComponent("Resources/DistortionWaves.metallib")
-            if FileManager.default.fileExists(atPath: url.path) { return ShaderLibrary(url: url) }
-            dir = d.deletingLastPathComponent()
-        }
-        return nil
-    }()
+    nonisolated(unsafe) static let library: ShaderLibrary? = ShaderFiles.library("DistortionWaves")
 
     nonisolated static var available: Bool { library != nil }
 
