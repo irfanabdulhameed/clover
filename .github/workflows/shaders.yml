@@ -1,0 +1,22 @@
+# Compiles Shaders/*.metal into Resources/DistortionWaves.metallib on a Mac with Xcode, since
+# the Command Line Tools have no Metal compiler. Download the artifact and commit the file.
+name: Shaders
+on:
+  push:
+    paths: ["Shaders/**", ".github/workflows/shaders.yml"]
+  workflow_dispatch:
+jobs:
+  metallib:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile
+        run: |
+          mkdir -p out
+          xcrun -sdk macosx metal -mmacosx-version-min=14.0 -c Shaders/DistortionWaves.metal -o out/DistortionWaves.air
+          xcrun -sdk macosx metallib out/DistortionWaves.air -o out/DistortionWaves.metallib
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DistortionWaves.metallib
+          path: out/DistortionWaves.metallib
