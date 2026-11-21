@@ -15,6 +15,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Clover"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 [ -f Resources/Clover.icns ] && cp Resources/Clover.icns "$APP/Contents/Resources/Clover.icns"
+# The distortion wave's shaders, compiled by .github/workflows/shaders.yml (no Metal compiler here).
+[ -f Resources/DistortionWaves.metallib ] && cp Resources/DistortionWaves.metallib "$APP/Contents/Resources/DistortionWaves.metallib"
 
 # Clover needs no special permission, so an ad-hoc signature is enough.
 codesign --force --sign - "$APP"

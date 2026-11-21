@@ -90,8 +90,11 @@ final class BloomController: BloomInteractionDelegate {
                 ChipView(title: "Balanced", isDefault: true, isLit: false, isFocused: false, hue: .orange)
                 // The wave of light and the ring, so the first choice isn't the first time.
                 let side = BloomGeometry.panelSize
-                DropRippleView(origin: CGPoint(x: side / 2, y: side / 2 - 100),
-                               front: RippleFront(radius: 120, energy: 1, rimKept: 1, time: 0.1, moved: 0.5), side: side)
+                // The distortion wave's shaders, mid-wave, so its first frames don't stall.
+                let wave = DistortionWaves.front(at: 0.6, slot: 0, count: 6, in: DistortionWaves.discSize)
+                DistortionStage(front: wave.front, source: wave.source) {
+                    Circle().fill(Color.white.opacity(0.3)).frame(width: side / 2, height: side / 2)
+                }
                 ChipRing(progress: 0, diameter: Motion.Drop.ringSide)
             }.environment(\.bloomSnapshot, true))
             _ = warm.cgImage
@@ -600,7 +603,7 @@ enum BloomAnchor {
     /// The point, if a clover just closed. Used once.
     static func take() -> NSPoint? {
         defer { last = nil }
-        guard let last, Date().timeIntervalSince(last.time) < 2 else { return nil }
+        guard let last, Date().timeIntervalSince(last.time) < Motion.Drop.handoff + 1.5 else { return nil }
         return last.point
     }
 }

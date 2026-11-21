@@ -61,13 +61,20 @@ struct BloomScene: View {
                     .opacity(glow.opacity)
                     .position(offset(BloomLayout.leafCenter(lit, of: count), center))
             }
-            layer(e, count: count, center: center, carried: carried, origin: origin)
-            if let wave {
-                WaveFront(origin: offset(origin, center), wave: wave, side: side)
+            if let carried, let wave = DistortionWaves.front(e, now: now, slot: carried, count: count) {
+                // Seen through the distortion wave: the disc's square, around its centre.
+                let disc = DistortionWaves.discSize
+                DistortionStage(front: wave.front, source: wave.source) {
+                    layer(e, count: count, center: center, carried: carried, origin: origin)
+                        .frame(width: disc.width, height: disc.height)
+                }
+                .scaleEffect(Motion.disc(e, now: now).scale)
+                .position(center)
+            } else {
+                layer(e, count: count, center: center, carried: carried, origin: origin)
             }
-            if let front = Motion.distortWave(e, now: now, origin: origin) {
-                DropRippleView(origin: offset(origin, center), front: front, side: side,
-                               discScale: Motion.disc(e, now: now).scale)
+            if let wave {
+                LightWaveFront(origin: offset(origin, center), wave: wave, side: side)
             }
             ForEach(Array(e.ripples.enumerated()), id: \.offset) { _, ripple in
                 if ripple.slot < count, let r = Motion.ripple(ripple, e, now: now) {
@@ -617,7 +624,7 @@ struct LightRing: View {
 /// it, tinted cyan to violet to pink, and a faint light just behind it. In Light a faint
 /// darker edge keeps it from being white on white. It stays on the disc, fading out as it
 /// nears the rim. Drawn with strokes and gradients only: no blur, no copies of the slots.
-struct WaveFront: View {
+struct LightWaveFront: View {
     /// The chosen leaf's middle, in the scene.
     let origin: CGPoint
     let wave: Wave
@@ -650,7 +657,7 @@ struct WaveFront: View {
             ], center: unit, startRadius: 0, endRadius: end))
             // The soft, faintly iridescent glow around the front.
             Circle()
-                .stroke(AngularGradient(colors: WaveFront.tint, center: .center, angle: .degrees(Double(r) * 0.5)),
+                .stroke(AngularGradient(colors: LightWaveFront.tint, center: .center, angle: .degrees(Double(r) * 0.5)),
                         lineWidth: d.waveGlow)
                 .frame(width: r * 2, height: r * 2)
                 .position(origin)

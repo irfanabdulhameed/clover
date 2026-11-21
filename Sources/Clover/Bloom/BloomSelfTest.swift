@@ -798,22 +798,20 @@ enum BloomSelfTest {
         expect(lifts.max()! <= M.Drop.chooseLift + 0.0001, "with no overshoot")
         expect(M.chosenGlow(e, now: d0 + M.Drop.choose) > 0.99 && M.chosenGlow(e, now: d0 + M.Drop.glideStart + M.Drop.glowOut + 0.001) == 0,
                "a soft inner glow comes up with it and goes as it glides")
-        // The distortion wave: from the chosen leaf, out and never back, gone before the ring.
-        if M.Distort.enabled {
-            let D = M.Distort.self
-            expect(M.distortWave(e, now: d0 + 0.01, origin: origin) == nil && (M.distortWave(e, now: d0 + D.start + 1e-6, origin: origin)?.radius ?? 1) < 0.5,
-                   "the distortion wave sets off at 20 ms from the leaf's middle")
-            let radii = (0..<100).compactMap { M.distortWave(e, now: d0 + D.start + 1e-6 + (D.rimClearAt + D.rimClear - D.start - 0.002) * Double($0) / 100, origin: origin)?.radius }
-            expect(radii.count == 100 && zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 }, "its front only moves out")
-            expect(M.distortWave(e, now: d0 + D.rimClearAt + D.rimClear + 0.001, origin: origin) == nil
-                   && D.rimClearAt + D.rimClear <= M.Drop.discAt + M.Drop.disc, "and is gone by the time the disc has drawn in")
-            let far = M.distortWave(e, now: d0 + D.start + D.travel * D.settleEnd + 0.001, origin: origin)
-            expect(far?.energy ?? 1 < 0.001, "the band has settled by then, leaving only the rim")
-            let bent = M.bend(centers[0], origin: origin, e, now: d0 + 0.2)
-            expect(bent.scale <= D.bendScale + 1e-6 && bent.blur <= D.bendBlur + 1e-6, "the leaves bend no more than the limits")
+        // The distortion wave: from the chosen leaf, the original's ring, then the carry.
+        if DistortionWaves.available {
+            let W = DistortionWaves.self
+            expect(W.style.duration >= 3.5 && W.style.aberration > 0 && W.style.palette == .colorful,
+                   "the distortion wave is the original's ring, colourful and colour-split")
+            let early = W.front(e, now: d0 + 0.1, slot: 1, count: 6)!.front
+            expect(!early.launched && early.gravity > 0, "it pulls the clover in toward the leaf first")
+            let radii = stride(from: 0.3, through: 2.0, by: 0.05).map { W.front(e, now: d0 + $0, slot: 1, count: 6)!.front.radius }
+            expect(zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 }, "then its front only moves out")
+            expect(W.front(e, now: d0 + W.carryAfter, slot: 1, count: 6)!.front.hasCleared, "it has crossed the clover before the carry")
+            expect(M.Drop.gatherAt == 0.34 + W.carryAfter && M.Drop.handoff == 0.55 + W.carryAfter, "the carry waits for it")
             var rd = e
             rd.reduce = true
-            expect(M.distortWave(rd, now: d0 + 0.1, origin: origin) == nil, "reduce motion: no distortion wave")
+            expect(W.front(rd, now: d0 + 0.5, slot: 1, count: 6) == nil, "reduce motion: no distortion wave")
         }
         // The leaves in order of distance from the chosen one.
         let order = (0..<6).filter { $0 != 1 }.sorted { L.distance(centers[$0], origin) < L.distance(centers[$1], origin) }
@@ -878,7 +876,7 @@ enum BloomSelfTest {
         // The chosen leaf glides in, the hub becomes the ring on its glass, no dark disc.
         let gathered = slotLook(1, M.Drop.glideStart + M.Drop.glide - 0.001).look
         expect(abs(gathered.offset.width + origin.x) < 0.6 && abs(gathered.offset.height + origin.y) < 0.6, "the chosen leaf glides to the hub")
-        let landing = stride(from: M.Drop.glideStart, to: M.Drop.ringAt, by: 0.002).map { slotLook(1, $0).look.opacity }
+        let landing = stride(from: M.Drop.glideStart, to: M.Drop.ringAt - 0.0005, by: 0.002).map { slotLook(1, $0).look.opacity }
         expect(landing.allSatisfy { $0 == 1 } && slotLook(1, M.Drop.ringAt).look.opacity == 0,
                "solid all the way in, then it flips into the ring in one frame: no ghost")
         expect(M.carryRing(e, now: d0 + M.Drop.ringAt - 0.001) == nil && M.carryRing(e, now: d0 + M.Drop.ringAt + 0.001) != nil,
@@ -889,7 +887,7 @@ enum BloomSelfTest {
         expect(M.hubContent(e, now: d0 + M.Drop.hubContentAt + M.Drop.hubContent + 0.001).opacity == 0, "its picture and capsule have gone")
         let discEnd = M.disc(e, now: d0 + M.Drop.handoff)
         expect(abs(discEnd.scale * G.discRadius * 2 - M.Drop.discTo) < 0.5 && discEnd.opacity == 1, "the disc's glass contracts to just under the ring")
-        expect(M.Drop.handoff == 0.55 && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 550 ms, no gap")
+        expect(M.Drop.handoff == 0.55 + M.Drop.afterWave && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 550 ms after the wave, no gap")
         expect(M.Drop.ringSide == ChipMotion.dropRingDiameter, "the same 56 pt ring")
         expect(M.busyUntil(e, count: 6) >= d0 + M.Drop.handoff, "the frame clock runs to the handoff")
 

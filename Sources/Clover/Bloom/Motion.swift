@@ -198,6 +198,10 @@ enum Motion {
         /// 0 to 90 ms: the chosen leaf at full hover brightness, with a soft inner glow,
         /// lifts from the hover's 103 % to this.
         static let choose: TimeInterval = 0.09
+        /// The carry to the ring waits this long for the distortion wave to play: its front
+        /// crosses the clover and the colour on the rim mostly clears first (Irfan, 21 Nov
+        /// 2026: the original's full timing). 0 when the wave can't play.
+        static var afterWave: TimeInterval { DistortionWaves.available ? DistortionWaves.carryAfter : 0 }
         static let chooseLift: CGFloat = 1.07
         /// 20 to 380 ms: one thin wave of light from the chosen leaf's middle across the
         /// disc, fading as it nears the rim.
@@ -224,7 +228,7 @@ enum Motion {
         /// 340 to 540 ms: the others fold to the hub one by one, the farthest last. They
         /// fold with a fast attack and fade quickly, so they are gone before the disc's glass
         /// draws in under them.
-        static let gatherAt: TimeInterval = 0.34
+        static var gatherAt: TimeInterval { 0.34 + afterWave }
         static let gatherStagger: TimeInterval = 0.05
         static let fold: TimeInterval = 0.15
         static let foldTo: CGFloat = 0.5
@@ -232,28 +236,28 @@ enum Motion {
         /// The option chips go first, quickly.
         static let chipsFold: TimeInterval = 0.12
         /// The disc's glass contracts to just under the ring, once the leaves are going.
-        static let discAt: TimeInterval = 0.44
+        static var discAt: TimeInterval { 0.44 + afterWave }
         static let disc: TimeInterval = 0.11
         static let discTo: CGFloat = 62
         /// The hub's picture and capsule go, and the hub shrinks to the ring's size.
-        static let hubContentAt: TimeInterval = 0.34
+        static var hubContentAt: TimeInterval { 0.34 + afterWave }
         static let hubContent: TimeInterval = 0.10
         static let hubContentBlur: CGFloat = 6
-        static let hubShrinkAt: TimeInterval = 0.42
+        static var hubShrinkAt: TimeInterval { 0.42 + afterWave }
         static let hubShrink: TimeInterval = 0.11
         /// The chosen leaf glides into the hub, shrinking, solid all the way, and flips into
         /// the ring in one frame as it lands. Its inner glow goes as it sets off.
-        static let glideStart: TimeInterval = 0.36
+        static var glideStart: TimeInterval { 0.36 + afterWave }
         static let glide: TimeInterval = 0.13
         static let glideTo: CGFloat = 0.35
         static let glowOut: TimeInterval = 0.08
         /// The ring appears on the hub's glass with a small pop, and is still by the handoff.
-        static let ringAt: TimeInterval = 0.49
+        static var ringAt: TimeInterval { 0.49 + afterWave }
         static let ringPop: TimeInterval = 0.05
         static let ringPopPeak: CGFloat = 1.06
         /// The result chip takes over the ring at this moment, at `BloomAnchor`; the panel
         /// hides. `ChipMotion.ringAppearDelay` is the same moment.
-        static let handoff: TimeInterval = 0.55
+        static var handoff: TimeInterval { 0.55 + afterWave }
         /// The ring is the chip's own (`ChipRing`), at its size.
         static var ringSide: CGFloat { ChipMotion.dropRingDiameter }
         /// A tray choice: the tray stays a moment, then goes.
@@ -446,9 +450,6 @@ extension Motion {
             let t = now - drop.at
             if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
             var look = nudged(.zero, origin: origin, t: t, shift: Drop.hubNudgeShift, scale: Drop.hubNudgeScale)
-            let bent = bend(.zero, origin: origin, e, now: now)
-            look.scale *= 1 + (bent.scale - 1) * 0.5
-            look.blur += bent.blur * 0.5
             let p = settle(phase(t, Drop.hubShrinkAt, Drop.hubShrink))
             look.scale *= lerp(1, Drop.ringSide / BloomGeometry.hubSize, p)
             return look
@@ -497,11 +498,6 @@ extension Motion {
             if e.reduce { return (Look(opacity: Hover.dimOpacity * (1 - phase(t, 0, fade))), .frosted) }
             // Nudged when the wave reaches it, then folded to the hub, the farthest last.
             var look = nudged(center, origin: origin, t: t, shift: Drop.nudgeShift, scale: Drop.nudgeScale)
-            // Bent and softened as the distortion wave passes.
-            let bent = bend(center, origin: origin, e, now: now)
-            look.scale *= bent.scale
-            look.offset.width += bent.offset.width
-            look.offset.height += bent.offset.height
             let distance = hypot(center.x - origin.x, center.y - origin.y)
             let start = Drop.gatherAt + Drop.gatherStagger * Double(min(distance / waveReach(origin), 1))
             let p = settle(phase(t, start, Drop.fold))
@@ -509,7 +505,7 @@ extension Motion {
             look.scale *= s
             look.offset.width += center.x * (s - 1)
             look.offset.height += center.y * (s - 1)
-            look.blur = lerp(0, Drop.foldBlur, p) + bent.blur
+            look.blur = lerp(0, Drop.foldBlur, p)
             look.opacity = Hover.dimOpacity * (1 - p)
             return (look, .frosted)
         }

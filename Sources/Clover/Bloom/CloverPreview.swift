@@ -45,11 +45,18 @@ struct CloverPreview: View {
         let model = BloomModel.still(arrangement: arrangement, picture: picture, caption: CloverPreview.caption, lit: lit, tint: tint)
         let titles = arrangement.leaves.map(\.title) + (arrangement.more.isEmpty ? [] : ["More"])
         ZStack {
-            BloomScene(model: model, now: 0, side: CloverPreview.scene)
-            if let wave {
-                WaveOverlay(slot: wave.slot, at: wave.at, count: count, side: CloverPreview.scene) {
-                    if self.wave?.at == wave.at { self.wave = nil }
+            if let wave, DistortionWaves.available {
+                // Seen through the drop's distortion wave, from the clicked leaf.
+                TimelineView(.animation) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate - wave.at
+                    let size = CGSize(width: CloverPreview.scene, height: CloverPreview.scene)
+                    let w = DistortionWaves.front(at: max(t, 0), slot: wave.slot, count: count, in: size)
+                    DistortionStage(front: w.front, source: w.source, style: CloverPreview.waveStyle) {
+                        BloomScene(model: model, now: 0, side: CloverPreview.scene)
+                    }
                 }
+            } else {
+                BloomScene(model: model, now: 0, side: CloverPreview.scene)
             }
         }
             .scaleEffect(CloverPreview.side / CloverPreview.scene)
@@ -57,7 +64,11 @@ struct CloverPreview: View {
             .contentShape(Rectangle())
             .onTapGesture(coordinateSpace: .local) { point in
                 if playsWave, let slot = slot(at: point) {
-                    wave = (slot, Date().timeIntervalSinceReferenceDate)
+                    let at = Date().timeIntervalSinceReferenceDate
+                    wave = (slot, at)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + DistortionWaves.style.duration) {
+                        if wave?.at == at { wave = nil }
+                    }
                 }
                 onLeaf?(target(at: point))
             }
@@ -94,31 +105,11 @@ struct CloverPreview: View {
     }
 }
 
-/// The drop's distortion wave over the still preview, from leaf `slot`, played once from `at`.
-private struct WaveOverlay: View {
-    let slot: Int
-    let at: TimeInterval
-    let count: Int
-    let side: CGFloat
-    let finished: () -> Void
-
-    var body: some View {
-        TimelineView(.animation) { context in
-            let now = context.date.timeIntervalSinceReferenceDate
-            let origin = BloomLayout.leafCenter(slot, of: count)
-            if let front = Motion.distortWave(events, now: now, origin: origin) {
-                DropRippleView(origin: CGPoint(x: side / 2 + origin.x, y: side / 2 + origin.y), front: front, side: side)
-            } else if now - at > Motion.Distort.rimClearAt + Motion.Distort.rimClear {
-                Color.clear.onAppear(perform: finished)
-            }
-        }
-        .frame(width: side, height: side)
-        .allowsHitTesting(false)
-    }
-
-    private var events: BloomEvents {
-        var events = BloomEvents()
-        events.drop = BloomEvents.Drop(at: at, slot: slot, chip: nil, pill: nil)
-        return events
+extension CloverPreview {
+    /// The wave in the preview's square: its rim on the preview's disc.
+    static var waveStyle: DistortionWaveStyle {
+        var style = DistortionWaves.style
+        style.cornerRadius = scene / 2
+        return style
     }
 }
