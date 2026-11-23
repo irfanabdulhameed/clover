@@ -47,6 +47,10 @@ enum ChipMotion {
     /// How closely the ring follows the real progress. The ring never goes backwards.
     static let progressLag = 0.18
     /// A job still running after this long sends its chip up under the menu bar icon.
+    /// Off (Irfan, 23 Nov 2026: "the pill should be exactly at the centre of the clover;
+    /// sometimes it moves to the top of the screen"): a long job's pill stays where the
+    /// clover was instead of going up under the menu bar icon.
+    static let dockEnabled = false
     static let dockAfter = 1.5
     static let dockDuration = 0.35
 

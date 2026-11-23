@@ -195,7 +195,7 @@ final class ResultHUD {
     /// A job that runs long sends the whole column up under the menu bar icon, where it waits.
     /// Nothing travels with reduced motion, and a chip never crosses to another display.
     private func dock(because chip: ResultChip) {
-        guard !docked, !model.settings.reduceMotion, !chip.job.isFinished, !chip.isLeaving,
+        guard ChipMotion.dockEnabled, !docked, !model.settings.reduceMotion, !chip.job.isFinished, !chip.isLeaving,
               chips.contains(where: { $0 === chip }), let panel, let screen,
               let icon = HomeController.statusIconFrame(),
               BloomController.screen(containing: NSPoint(x: icon.midX, y: icon.midY)) == screen

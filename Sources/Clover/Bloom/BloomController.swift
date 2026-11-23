@@ -544,7 +544,9 @@ final class BloomController: BloomInteractionDelegate {
         panel?.allowsKey = false
         BloomAnchor.set(center)
         model.convert(files, to: target, option: option)
-        finish(after: Motion.Drop.handoff)
+        // The chip's window shows its ring at the handoff; the clover's stays one frame
+        // longer (above it, as the ring the chip starts from), so there is never a frame with no ring.
+        finish(after: Motion.Drop.handoff + 1.0 / 60)
     }
 
     func bloomModifiersChanged(_ flags: NSEvent.ModifierFlags) {

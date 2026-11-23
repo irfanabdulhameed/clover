@@ -74,6 +74,8 @@ struct DistortionStage<Content: View>: View {
     /// picture goes through the lens: three copies of a picture cost far less a frame than
     /// three of the views. Nil draws the content live, as it changes.
     var freezeKey: Double? = nil
+    /// Only the colour band, the rim and the sparks: the content is drawn elsewhere.
+    var colourOnly = false
     @ViewBuilder let content: () -> Content
 
     @State private var frozen = FrozenContent()
@@ -89,7 +91,9 @@ struct DistortionStage<Content: View>: View {
         let acting = live && front.energy > 0
         let size = front.size
         ZStack {
-            lensed(field: field, lens: acting || (live && front.gravity > 0), blurred: acting)
+            if !colourOnly {
+                lensed(field: field, lens: acting || (live && front.gravity > 0), blurred: acting)
+            }
             if let library = DistortionWaves.library {
                 Rectangle()
                     .fill(Color.white)
