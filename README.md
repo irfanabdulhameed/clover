@@ -176,7 +176,7 @@ The same converter runs without the interface, which is handy for scripts and au
 ```bash
 CLOVER=/Applications/Clover.app/Contents/MacOS/Clover   # ~/Applications/… if you built it yourself
 
-$CLOVER --version                              # the version, e.g. Clover 1.0.0 (1)
+$CLOVER --version                              # the version, e.g. Clover 1.2.1 (4)
 $CLOVER tools                                  # which engines are installed
 $CLOVER targets holiday.heic                   # what this file can become
 $CLOVER convert jpg --option small *.heic      # convert, printing the new paths
