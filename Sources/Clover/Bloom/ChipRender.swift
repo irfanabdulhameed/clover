@@ -84,7 +84,7 @@ enum ChipRender {
         reducedFailed.end(.failed, at: 0.5)
 
         return [
-            Sequence(name: "1-entrance", playback: running, frames: [-0.08, 0, 0.07, 0.17, 0.30].map { ChipMotion.ringAppearDelay + $0 }.map { (ms($0), $0) }, kind: .running),
+            Sequence(name: "1-entrance", playback: running, frames: [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.38, 0.5, 0.7].map { ChipMotion.ringAppearDelay + $0 }.map { (ms($0), $0) }, kind: .running),
             Sequence(name: "2-entrance-clamped", playback: offsetRing, frames: [0, 0.07, 0.17, 0.30].map { ChipMotion.ringAppearDelay + $0 }.map { (ms($0), $0) }, kind: .running),
             Sequence(name: "3-entrance-no-clover", playback: born, frames: [0, 0.04, 0.08, 0.15, 0.4].map { (ms($0), $0) }, kind: .running),
             Sequence(name: "4-done", playback: done,
@@ -205,11 +205,16 @@ enum ChipRender {
         check(ChipMotion.out(0.30, over: 0.30) == 1 && ChipMotion.out(0, over: 0.30) == 0, "ends at 0 and 1")
         check(times(0, 0.4).map { ChipMotion.out($0, over: 0.3) }.adjacentPairs().allSatisfy { $0 <= $1 && $1 <= 1 }, "the curve only rises and never passes 1")
 
-        // Ring entrance: width only grows, to the chip's width and no further; the ring only shrinks; nothing scales.
+        // Ring entrance: the width springs a little past and settles; the ring only shrinks; nothing zooms.
         let ringed = ChipPlayback(reduced: false, ringStart: CGSize(width: -70, height: 14))
-        let grow = times(ringed.appearAt, ringed.appearAt + 0.5).map { ringed.values(at: $0) }
-        check(grow.map(\.width).adjacentPairs().allSatisfy { $0 <= $1 + 0.001 }, "the chip only widens")
-        check(grow.allSatisfy { $0.width <= ChipMotion.chipSize.width + 0.001 && $0.scale == 1 }, "no overshoot, no scale on the ring entrance")
+        let grow = times(ringed.appearAt, ringed.appearAt + ChipMotion.springSettle + 0.05).map { ringed.values(at: $0) }
+        let fullW = ChipMotion.chipSize.width, startW = ChipMotion.dropRingDiameter
+        let widest = grow.map(\.width).max() ?? 0
+        check(widest > fullW && (widest - startW) / (fullW - startW) < 1.06 && abs((grow.last?.width ?? 0) - fullW) < 0.5,
+              "the chip springs a little past its width (under 6 %) and settles on it")
+        check(grow.contains { $0.squash < 0.97 } && grow.contains { $0.squash > 1.0 } && abs((grow.last?.squash ?? 0) - 1) < 0.001,
+              "it thins as it stretches out, bulges a touch on the rebound, and ends at its own height")
+        check(grow.allSatisfy { $0.scale == 1 }, "no scale on the ring entrance: it stretches, it doesn't zoom")
         check(abs((grow.first?.blur ?? 0) - Motion.Drop.handoffBlur) < 0.01 && grow.map(\.blur).adjacentPairs().allSatisfy { $0 >= $1 - 0.001 }
               && (grow.last?.blur ?? 1) < 0.01, "the ring entrance starts as soft as the clover's ring and only sharpens")
         check(grow.map(\.ringDiameter).adjacentPairs().allSatisfy { $0 >= $1 - 0.001 }, "the ring only shrinks, from 56 to 40")
@@ -219,7 +224,8 @@ enum ChipRender {
         check(grow.map { abs($0.offset.width) }.adjacentPairs().allSatisfy { $0 >= $1 - 0.001 }, "the chip only moves toward its place")
         let w140 = ringed.values(at: ringed.appearAt + 0.14).width
         let startWidth = ChipMotion.dropRingDiameter, fullWidth = ChipMotion.chipSize.width
-        check(abs((w140 - startWidth) / (fullWidth - startWidth) - 0.75) < 0.02, "75 % grown by 140 ms")
+        check((w140 - startWidth) / (fullWidth - startWidth) > 0.4 && (w140 - startWidth) / (fullWidth - startWidth) < 0.95,
+              "well on its way by 140 ms, not there yet")
 
         // Blur-born entrance.
         let bornPlay = ChipPlayback(reduced: false, ringStart: nil)

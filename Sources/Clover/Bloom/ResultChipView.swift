@@ -272,7 +272,7 @@ struct ResultChipView: View {
                                 size: .md, variant: .colorful, theme: scheme == .dark ? "dark" : "light",
                                 staticColors: false, duration: BeamSpec.shared.defaults.duration.rotate,
                                 borderRadius: Double(corner), brightness: nil, saturation: nil,
-                                hueRange: 30, strength: 1),
+                                hueRange: 30, strength: BorderBeams.strength),
                             fade: BorderBeams.fade(age), time: age)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
@@ -283,7 +283,7 @@ struct ResultChipView: View {
                 }
         }
         .frame(width: ResultChipView.size.width, height: ResultChipView.size.height)
-        .scaleEffect(v.scale)
+        .scaleEffect(x: v.scale, y: v.scale * v.squash)
         .blur(radius: v.blur)
         .opacity(v.opacity)
         .offset(v.offset)

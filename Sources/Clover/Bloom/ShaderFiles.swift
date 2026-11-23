@@ -34,9 +34,16 @@ enum BorderBeams {
     static let laps = 2.0
     static var duration: Double { laps * (BeamSpec.loaded?.defaults.duration.rotate ?? 1.96) }
 
-    /// How strong the beam is `age` seconds after the chip flipped to its result: 1 to 0
-    /// over the two laps, on CSS `ease`, as the original fades.
+    /// How much stronger than the original the beam is drawn, so it reads on the frosted
+    /// chip (Irfan, 23 Nov 2026: "the border glow is not that visible"). Each layer is
+    /// still capped at full opacity by the shader.
+    static let strength = 2.4
+
+    /// How strong the beam is `age` seconds after the chip flipped to its result: full
+    /// through the first third of the two laps, then down to nothing by their end.
     static func fade(_ age: Double) -> Double {
-        1 - BeamAnimation.cssEase(min(max(age / duration, 0), 1))
+        let u = min(max(age / duration, 0), 1)
+        let x = min(max((u - 1.0 / 3) / (2.0 / 3), 0), 1)
+        return 1 - x * x * (3 - 2 * x)
     }
 }

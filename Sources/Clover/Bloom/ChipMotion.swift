@@ -27,8 +27,8 @@ enum ChipMotion {
     /// With a clover behind it, the chip waits this long after the drop. The clover's own
     /// ring is on screen until then, so the two never show at once.
     static var ringAppearDelay: TimeInterval { Motion.Drop.handoff }
-    /// The ring grows into the chip.
-    static let grow = 0.30
+    /// The ring grows into the chip. 0.55 s (Irfan, 23 Nov 2026: 0.30 s felt too fast).
+    static let grow = 0.55
     /// Without a clover, the chip is born blurred, a little large, and sharpens.
     static let bornDuration = 0.30
     static let bornBlur: CGFloat = 12
@@ -97,6 +97,48 @@ enum ChipMotion {
     /// (140 ms of a 300 ms move).
     static let sharpness = 2.46
 
+    /// The ring-to-chip morph's spring, as the Dynamic Island grows (Irfan, 23 Nov 2026:
+    /// "that stretch kind of effect like Apple's"): it runs about 4 % past and settles by
+    /// `grow`. Underdamped: response `springResponse`, damping `springDamping`.
+    static let springResponse = 0.5
+    static let springDamping = 0.72
+    /// How much the chip thins while it stretches out fastest, and bulges on the rebound.
+    static let stretchSquash: CGFloat = 0.07
+    /// By then the spring is within a fifth of a point of rest, so it stops there.
+    static let springSettle = 0.85
+
+    static func spring(_ t: Double) -> Double {
+        guard t > 0 else { return 0 }
+        let omega = 2 * Double.pi / springResponse
+        let zeta = springDamping
+        let wd = omega * (1 - zeta * zeta).squareRoot()
+        return 1 - exp(-zeta * omega * t) * (cos(wd * t) + zeta * omega / wd * sin(wd * t))
+    }
+
+    /// The spring's speed at `t`, as a share of its fastest: positive growing, negative
+    /// on the rebound.
+    static func springSpeed(_ t: Double) -> Double {
+        let h = 1.0 / 240
+        let speed = (spring(t + h) - spring(t)) / h
+        return speed / peakSpringSpeed
+    }
+
+    /// The spring on its way in only: it rises to 1 the first time and stays there. For
+    /// what must arrive and stop (the ring's size, the chip's place); the width springs.
+    static func springIn(_ t: Double) -> Double {
+        t >= springFirstArrival ? 1 : min(spring(t), 1)
+    }
+
+    private static let springFirstArrival: Double = {
+        var t = 0.0
+        while t < 1, spring(t) < 1 { t += 1.0 / 2000 }
+        return t
+    }()
+
+    private static let peakSpringSpeed: Double = {
+        stride(from: 0.0, through: 0.3, by: 1.0 / 480).map { (spring($0 + 1.0 / 240) - spring($0)) * 240 }.max() ?? 1
+    }()
+
     static func out(_ t: Double, over duration: Double) -> Double {
         guard duration > 0 else { return 1 }
         let u = min(max(t / duration, 0), 1)
@@ -141,6 +183,8 @@ struct ChipValues: Equatable {
     var textScale: CGFloat = 1
     /// The picture in the leading slot.
     var pop: CGFloat = 1
+    /// The chip's height as a share of its own, while it stretches and settles.
+    var squash: CGFloat = 1
     /// Still showing the running chip: the result has not flipped in yet.
     var showsRunning = false
     /// 0...1 over the ripple, nil when there is none.
@@ -255,6 +299,8 @@ struct ChipPlayback {
     /// True when nothing is moving, so the clock can stop.
     func isSettled(at t: Double) -> Bool {
         if t < appearAt + ChipMotion.textStart + ChipMotion.textDuration + 0.1 { return false }
+        // The spring of the ring's morph plays out in full.
+        if ringStart != nil, !reduced, t < appearAt + ChipMotion.springSettle + 0.02 { return false }
         if let exitAt { return t > exitAt + ChipMotion.exitDuration + 0.05 }
         if t < slotAt + ChipMotion.reflowDuration + 0.05 { return false }
         if let ending {
@@ -298,13 +344,17 @@ struct ChipPlayback {
             v.opacity = min(u / ChipMotion.reducedFade, 1)
             words = v.opacity
         } else if let start = ringStart {
-            let e = ChipMotion.out(u, over: ChipMotion.grow)
+            // Grows on a spring, a little past and back, thinning as it stretches out and
+            // bulging a touch on the rebound, as the Dynamic Island does.
+            let e = u < ChipMotion.springSettle ? ChipMotion.spring(u) : 1
+            let c = u < ChipMotion.springSettle ? ChipMotion.springIn(u) : 1
             v.width = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.chipSize.width, e)
-            v.offset = CGSize(width: start.width * CGFloat(1 - e), height: start.height * CGFloat(1 - e))
-            v.ringDiameter = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.slot, e)
+            v.squash = u < ChipMotion.springSettle ? 1 - ChipMotion.stretchSquash * CGFloat(ChipMotion.springSpeed(u)) : 1
+            v.offset = CGSize(width: start.width * CGFloat(1 - c), height: start.height * CGFloat(1 - c))
+            v.ringDiameter = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.slot, c)
             // The clover's ring is a little soft at the handoff: the chip starts as soft and
             // sharpens as it grows.
-            v.blur = Motion.Drop.handoffBlur * CGFloat(1 - e)
+            v.blur = Motion.Drop.handoffBlur * CGFloat(1 - c)
             born(u - ChipMotion.textStart)
             if ChipMotion.textAnimated, u < ChipMotion.textStart { words = 0 }
         } else {
