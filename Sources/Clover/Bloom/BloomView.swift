@@ -105,6 +105,7 @@ struct BloomScene: View {
                 ChipGlassBackground(cornerRadius: Motion.Drop.ringSide / 2, clover: model.chipTinted)
                     .frame(width: Motion.Drop.ringSide, height: Motion.Drop.ringSide)
                     .scaleEffect(Motion.carryRing(e, now: now)?.scale ?? 1)
+                    .blur(radius: Motion.carryRing(e, now: now)?.blur ?? 0)
                     .opacity(Motion.chipGlassIn(e, now: now))
                     .position(center)
             }

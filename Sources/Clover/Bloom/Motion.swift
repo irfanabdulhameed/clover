@@ -252,6 +252,11 @@ enum Motion {
         static let glide: TimeInterval = 0.13
         static let glideTo: CGFloat = 0.35
         static let glowOut: TimeInterval = 0.08
+        /// A slight blur across the handoff (Irfan, 23 Nov 2026): the leaf softens as it
+        /// glides in and is sharp as it lands; the ring softens over its last moment, and
+        /// the chip starts at that same blur and sharpens as it grows.
+        static let glideBlur: CGFloat = 2.5
+        static let handoffBlur: CGFloat = 3
         /// The ring appears on the hub's glass with a small pop, and is still by the handoff.
         static var ringAt: TimeInterval { 0.49 + afterWave }
         static let ringPop: TimeInterval = 0.05
@@ -835,7 +840,8 @@ extension Motion {
         }
         let p = settle(phase(t, Drop.glideStart, Drop.glide))
         let offset = CGSize(width: -center.x * CGFloat(p), height: -center.y * CGFloat(p))
-        return (Look(scale: lift * lerp(1, Drop.glideTo, p), offset: offset), .lit)
+        let blur = Drop.glideBlur * CGFloat(sin(.pi * phase(t, Drop.glideStart, Drop.glide)))
+        return (Look(scale: lift * lerp(1, Drop.glideTo, p), offset: offset, blur: blur), .lit)
     }
 
     /// How far the chip's glass has come in under the clover's ring: 0 at the ring, 1 at the
@@ -843,6 +849,12 @@ extension Motion {
     static func chipGlassIn(_ e: BloomEvents, now: TimeInterval) -> Double {
         guard let drop = e.drop else { return 0 }
         return settle(phase(now - drop.at, Drop.ringAt, Drop.handoff - Drop.ringAt))
+    }
+
+    /// The ring's blur `t` after the drop: none as it appears, `Drop.handoffBlur` at the
+    /// handoff, where the chip picks it up.
+    static func handoffBlur(_ t: TimeInterval) -> CGFloat {
+        Drop.handoffBlur * CGFloat(phase(t, Drop.ringAt + Drop.ringPop, Drop.handoff - Drop.ringAt - Drop.ringPop))
     }
 
     /// The ring on the hub's glass, from the moment the leaf is taken in. Nil before.
@@ -855,7 +867,8 @@ extension Motion {
             return Look(opacity: phase(t, fade / 2, fade))
         }
         guard t >= Drop.ringAt else { return nil }
-        return Look(scale: pop(t - Drop.ringAt, duration: Drop.ringPop, peak: Drop.ringPopPeak))
+        return Look(scale: pop(t - Drop.ringAt, duration: Drop.ringPop, peak: Drop.ringPopPeak),
+                    blur: handoffBlur(t))
     }
 
     /// Something folding into the hub on an animated cancel: it shrinks about the disc's

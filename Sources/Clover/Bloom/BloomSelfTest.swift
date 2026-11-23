@@ -883,7 +883,9 @@ enum BloomSelfTest {
                "solid all the way in, then it flips into the ring in one frame: no ghost")
         expect(M.carryRing(e, now: d0 + M.Drop.ringAt - 0.001) == nil && M.carryRing(e, now: d0 + M.Drop.ringAt + 0.001) != nil,
                "the ring appears on the hub")
-        expect(M.carryRing(e, now: d0 + M.Drop.handoff) == .still, "and sits still at the handoff")
+        let atHandoff = M.carryRing(e, now: d0 + M.Drop.handoff)
+        expect(atHandoff?.scale == 1 && atHandoff?.offset == .zero && abs((atHandoff?.blur ?? 0) - M.Drop.handoffBlur) < 0.01,
+               "and sits still at the handoff, a little soft, as the chip starts")
         let hubEnd = M.hub(e, now: d0 + M.Drop.handoff, origin: origin)
         expect(abs(hubEnd.scale * G.hubSize - M.Drop.ringSide) < 0.5 && hubEnd.opacity == 1, "the hub has become the ring's frosted glass, 56 pt")
         expect(M.hubContent(e, now: d0 + M.Drop.hubContentAt + M.Drop.hubContent + 0.001).opacity == 0, "its picture and capsule have gone")

@@ -209,7 +209,9 @@ enum ChipRender {
         let ringed = ChipPlayback(reduced: false, ringStart: CGSize(width: -70, height: 14))
         let grow = times(ringed.appearAt, ringed.appearAt + 0.5).map { ringed.values(at: $0) }
         check(grow.map(\.width).adjacentPairs().allSatisfy { $0 <= $1 + 0.001 }, "the chip only widens")
-        check(grow.allSatisfy { $0.width <= ChipMotion.chipSize.width + 0.001 && $0.scale == 1 && $0.blur == 0 }, "no overshoot, no scale, no blur on the ring entrance")
+        check(grow.allSatisfy { $0.width <= ChipMotion.chipSize.width + 0.001 && $0.scale == 1 }, "no overshoot, no scale on the ring entrance")
+        check(abs((grow.first?.blur ?? 0) - Motion.Drop.handoffBlur) < 0.01 && grow.map(\.blur).adjacentPairs().allSatisfy { $0 >= $1 - 0.001 }
+              && (grow.last?.blur ?? 1) < 0.01, "the ring entrance starts as soft as the clover's ring and only sharpens")
         check(grow.map(\.ringDiameter).adjacentPairs().allSatisfy { $0 >= $1 - 0.001 }, "the ring only shrinks, from 56 to 40")
         check(abs(grow[0].width - ChipMotion.dropRingDiameter) < 0.01 && abs(grow[0].ringDiameter - 56) < 0.01, "starts as the 56 pt ring")
         check(ringed.values(at: ringed.appearAt - 0.01).isHidden, "hidden before the clover has handed over")

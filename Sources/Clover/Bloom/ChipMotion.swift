@@ -302,6 +302,9 @@ struct ChipPlayback {
             v.width = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.chipSize.width, e)
             v.offset = CGSize(width: start.width * CGFloat(1 - e), height: start.height * CGFloat(1 - e))
             v.ringDiameter = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.slot, e)
+            // The clover's ring is a little soft at the handoff: the chip starts as soft and
+            // sharpens as it grows.
+            v.blur = Motion.Drop.handoffBlur * CGFloat(1 - e)
             born(u - ChipMotion.textStart)
             if ChipMotion.textAnimated, u < ChipMotion.textStart { words = 0 }
         } else {
