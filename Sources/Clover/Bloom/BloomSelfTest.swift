@@ -801,13 +801,15 @@ enum BloomSelfTest {
         // The distortion wave: from the chosen leaf, the original's ring, then the carry.
         if DistortionWaves.available {
             let W = DistortionWaves.self
-            expect(W.style.duration >= 3.5 && W.style.aberration > 0 && W.style.palette == .colorful,
-                   "the distortion wave is the original's ring, colourful and colour-split")
+            expect(M.Drop.handoff < 1.5 && W.style.aberration > 0 && W.style.palette == .colorful,
+                   "the distortion wave is the original's ring, colourful and colour-split, and the pill comes within 1.5 s")
             let early = W.front(e, now: d0 + 0.1, slot: 1, count: 6)!.front
             expect(!early.launched && early.gravity > 0, "it pulls the clover in toward the leaf first")
-            let radii = stride(from: 0.3, through: 2.0, by: 0.05).map { W.front(e, now: d0 + $0, slot: 1, count: 6)!.front.radius }
+            let radii = stride(from: 0.2, through: 1.4, by: 0.02).map { W.front(e, now: d0 + $0, slot: 1, count: 6)!.front.radius }
             expect(zip(radii, radii.dropFirst()).allSatisfy { $0 <= $1 }, "then its front only moves out")
-            expect(W.front(e, now: d0 + W.carryAfter, slot: 1, count: 6)!.front.hasCleared, "it has crossed the clover before the carry")
+            let atCarry = W.front(e, now: d0 + W.carryAfter, slot: 1, count: 6)!
+            let farthest = hypot(atCarry.source.midX - G.discRadius, atCarry.source.midY - G.discRadius) + G.discRadius
+            expect(atCarry.front.radius >= farthest, "its front has crossed the whole disc before the carry")
             expect(M.Drop.gatherAt == 0.34 + W.carryAfter && M.Drop.handoff == 0.55 + W.carryAfter, "the carry waits for it")
             var rd = e
             rd.reduce = true
@@ -877,7 +879,7 @@ enum BloomSelfTest {
         let gathered = slotLook(1, M.Drop.glideStart + M.Drop.glide - 0.001).look
         expect(abs(gathered.offset.width + origin.x) < 0.6 && abs(gathered.offset.height + origin.y) < 0.6, "the chosen leaf glides to the hub")
         let landing = stride(from: M.Drop.glideStart, to: M.Drop.ringAt - 0.0005, by: 0.002).map { slotLook(1, $0).look.opacity }
-        expect(landing.allSatisfy { $0 == 1 } && slotLook(1, M.Drop.ringAt).look.opacity == 0,
+        expect(landing.allSatisfy { $0 == 1 } && slotLook(1, M.Drop.ringAt + 1e-6).look.opacity == 0,
                "solid all the way in, then it flips into the ring in one frame: no ghost")
         expect(M.carryRing(e, now: d0 + M.Drop.ringAt - 0.001) == nil && M.carryRing(e, now: d0 + M.Drop.ringAt + 0.001) != nil,
                "the ring appears on the hub")

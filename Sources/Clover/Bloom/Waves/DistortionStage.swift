@@ -17,22 +17,28 @@ enum DistortionWaves {
     /// the colour, colour split and rim of its main demo, as on libraries.dev/waves.
     static let style: DistortionWaveStyle = {
         var style = DistortionWaveStyle(type: .center)
-        // The main demo's colour, its strength, and its rim, which holds until the carry.
+        // The main demo's colour, its strength and colour split.
         style.palette = .colorful
         style.aberration = 0.78
         style.strength = 0.92
         style.rimStrength = 0.82
-        style.rimFade = 3.03
-        style.hairlineLinger = 0.47
         style.gatherGlow = 0.33
         style.gatherDots = 1
+        // Quick (Irfan, 23 Nov 2026: "after the wave it's stuck for 2-3 seconds"): a short
+        // pull, and the rim, hairline and sparks gone within the second after the front
+        // has crossed, so the carry to the ring follows straight on.
+        style.anticipation = 0.18
+        style.rimFade = 1.15
+        style.hairlineLinger = 0.1
+        style.hairlineFade = 1.0
+        style.particleLife = 1.0
         style.cornerRadius = BloomGeometry.discRadius
         return style
     }()
 
-    /// The carry to the ring starts this long after the drop: the front has crossed the
-    /// clover and the colour on the rim has mostly cleared.
-    nonisolated static let carryAfter: TimeInterval = 3.0
+    /// The carry to the ring starts this long after the drop: just after the front has
+    /// crossed the clover (about 0.55 s), while the rim's colour fades.
+    nonisolated static let carryAfter: TimeInterval = 0.7
 
     /// The disc's square, which the wave fills.
     static var discSize: CGSize { CGSize(width: BloomGeometry.discRadius * 2, height: BloomGeometry.discRadius * 2) }
