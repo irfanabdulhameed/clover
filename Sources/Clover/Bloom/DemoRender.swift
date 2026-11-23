@@ -202,7 +202,8 @@ enum DemoRender {
             clock.now = t
 
             let windowAlpha = opened ? Double(revealCurve(min(max((t - openedAt) / Motion.Open.fadeIn, 0), 1))) : 0
-            let cloverShown = opened && (dropped.map { t < $0 + Motion.Drop.handoff } ?? true)
+            // As in the app, the clover stays a frame past the handoff, under the chip's first frame.
+            let cloverShown = opened && (dropped.map { t < $0 + Motion.Drop.handoff + 1.0 / 60 } ?? true)
             var chip: ChipValues?
             if let dropped {
                 while let next = chipEvents.first, next.at <= t - dropped + 1e-9 {

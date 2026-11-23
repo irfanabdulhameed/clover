@@ -101,18 +101,28 @@ enum ChipMotion {
     /// "that stretch kind of effect like Apple's"): it runs about 4 % past and settles by
     /// `grow`. Underdamped: response `springResponse`, damping `springDamping`.
     static let springResponse = 0.5
-    static let springDamping = 0.72
+    static let springDamping = 0.78
     /// How much the chip thins while it stretches out fastest, and bulges on the rebound.
     static let stretchSquash: CGFloat = 0.07
     /// By then the spring is within a fifth of a point of rest, so it stops there.
     static let springSettle = 0.85
+
+    /// The match cut's other side: the chip leaves the ring already moving, as fast as the
+    /// clover's glass was drawing in on the cut, and slows from there (1/s of its growth).
+    /// The disc covers (380 − 56) pt at `Motion.intoCutEndSpeed` / `Motion.Drop.disc`; the
+    /// chip's growth is (its width − 56) pt.
+    static var springStartSpeed: Double {
+        let discSpeed = Double(BloomGeometry.discRadius * 2 - dropRingDiameter) * Motion.intoCutEndSpeed / Motion.Drop.disc
+        return discSpeed / Double(chipSize.width - dropRingDiameter)
+    }
 
     static func spring(_ t: Double) -> Double {
         guard t > 0 else { return 0 }
         let omega = 2 * Double.pi / springResponse
         let zeta = springDamping
         let wd = omega * (1 - zeta * zeta).squareRoot()
-        return 1 - exp(-zeta * omega * t) * (cos(wd * t) + zeta * omega / wd * sin(wd * t))
+        let a = zeta * omega
+        return 1 - exp(-a * t) * (cos(wd * t) + (a - springStartSpeed) / wd * sin(wd * t))
     }
 
     /// The spring's speed at `t`, as a share of its fastest: positive growing, negative
@@ -349,7 +359,10 @@ struct ChipPlayback {
             let e = u < ChipMotion.springSettle ? ChipMotion.spring(u) : 1
             let c = u < ChipMotion.springSettle ? ChipMotion.springIn(u) : 1
             v.width = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.chipSize.width, e)
-            v.squash = u < ChipMotion.springSettle ? 1 - ChipMotion.stretchSquash * CGFloat(ChipMotion.springSpeed(u)) : 1
+            // Eased in over its first frames, so the round ring never turns oval in one frame.
+            let squashIn = CGFloat(min(max(u / 0.06, 0), 1))
+            v.squash = u < ChipMotion.springSettle
+                ? 1 - ChipMotion.stretchSquash * squashIn * CGFloat(ChipMotion.springSpeed(u)) : 1
             v.offset = CGSize(width: start.width * CGFloat(1 - c), height: start.height * CGFloat(1 - c))
             v.ringDiameter = ChipMotion.lerp(ChipMotion.dropRingDiameter, ChipMotion.slot, c)
             // The clover's ring is a little soft at the handoff: the chip starts as soft and

@@ -235,21 +235,24 @@ enum Motion {
         static let foldBlur: CGFloat = 7
         /// The option chips go first, quickly.
         static let chipsFold: TimeInterval = 0.12
-        /// The disc's glass contracts to just under the ring, once the leaves are going.
-        static var discAt: TimeInterval { 0.44 + afterWave }
-        static let disc: TimeInterval = 0.11
+        /// The disc's glass contracts to the ring as a match cut into the chip (Irfan,
+        /// 23 Nov 2026: "too fast and linear… use match cut logic, very smooth"): it starts
+        /// gently and speeds up, reaching the ring's size at its fastest exactly at the
+        /// handoff, where the chip leaves at that speed and slows (`intoCut`).
+        static var discAt: TimeInterval { 0.40 + afterWave }
+        static var disc: TimeInterval { handoff - discAt }
         /// Exactly the chip's ring size, so the chip's own glass takes over with no step.
         static var discTo: CGFloat { ChipMotion.dropRingDiameter }
         /// The hub's picture and capsule go, and the hub shrinks to the ring's size.
         static var hubContentAt: TimeInterval { 0.34 + afterWave }
         static let hubContent: TimeInterval = 0.10
         static let hubContentBlur: CGFloat = 6
-        static var hubShrinkAt: TimeInterval { 0.42 + afterWave }
-        static let hubShrink: TimeInterval = 0.11
+        static var hubShrinkAt: TimeInterval { 0.40 + afterWave }
+        static var hubShrink: TimeInterval { handoff - hubShrinkAt }
         /// The chosen leaf glides into the hub, shrinking, solid all the way, and flips into
         /// the ring in one frame as it lands. Its inner glow goes as it sets off.
         static var glideStart: TimeInterval { 0.36 + afterWave }
-        static let glide: TimeInterval = 0.13
+        static let glide: TimeInterval = 0.22
         static let glideTo: CGFloat = 0.35
         static let glowOut: TimeInterval = 0.08
         /// A slight blur across the handoff (Irfan, 23 Nov 2026): the leaf softens as it
@@ -258,12 +261,12 @@ enum Motion {
         static let glideBlur: CGFloat = 2.5
         static let handoffBlur: CGFloat = 3
         /// The ring appears on the hub's glass with a small pop, and is still by the handoff.
-        static var ringAt: TimeInterval { 0.49 + afterWave }
+        static var ringAt: TimeInterval { 0.58 + afterWave }
         static let ringPop: TimeInterval = 0.05
         static let ringPopPeak: CGFloat = 1.06
         /// The result chip takes over the ring at this moment, at `BloomAnchor`; the panel
         /// hides. `ChipMotion.ringAppearDelay` is the same moment.
-        static var handoff: TimeInterval { 0.55 + afterWave }
+        static var handoff: TimeInterval { 0.70 + afterWave }
         /// The ring is the chip's own (`ChipRing`), at its size.
         static var ringSide: CGFloat { ChipMotion.dropRingDiameter }
         /// A tray choice: the tray stays a moment, then goes.
@@ -294,6 +297,15 @@ enum Motion {
         let k = 2.5
         return (1 - exp(-k * t)) / (1 - exp(-k))
     }
+
+    /// Into a match cut: a gentle start that keeps speeding up, so it arrives at its fastest
+    /// (3.25 times its average speed) on the cut. cubic-bezier(0.45, 0, 0.8, 0.35).
+    static func intoCut(_ t: Double) -> Double {
+        intoCutCurve(t)
+    }
+    nonisolated(unsafe) private static let intoCutCurve = CubicBezier(0.45, 0, 0.8, 0.35)
+    /// Its speed on the cut, as a share of its average.
+    static let intoCutEndSpeed = 0.65 / 0.2
 
     /// Exits: leave briskly and keep accelerating away.
     static func exit(_ t: Double) -> Double {
@@ -439,7 +451,7 @@ extension Motion {
             let t = now - drop.at
             if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
             // The glass contracts to just under the ring, and stays as its backing.
-            let p = settle(phase(t, Drop.discAt, Drop.disc))
+            let p = intoCut(phase(t, Drop.discAt, Drop.disc))
             return Look(scale: lerp(1, Drop.discTo / (BloomGeometry.discRadius * 2), p))
         }
         if let cancel = e.cancelAt { return cancelLook(e, now: now, since: cancel) }
@@ -456,7 +468,7 @@ extension Motion {
             let t = now - drop.at
             if e.reduce { return Look(opacity: 1 - phase(t, 0, fade)) }
             var look = nudged(.zero, origin: origin, t: t, shift: Drop.hubNudgeShift, scale: Drop.hubNudgeScale)
-            let p = settle(phase(t, Drop.hubShrinkAt, Drop.hubShrink))
+            let p = intoCut(phase(t, Drop.hubShrinkAt, Drop.hubShrink))
             look.scale *= lerp(1, Drop.ringSide / BloomGeometry.hubSize, p)
             return look
         }

@@ -810,7 +810,7 @@ enum BloomSelfTest {
             let atCarry = W.front(e, now: d0 + W.carryAfter, slot: 1, count: 6)!
             let farthest = hypot(atCarry.source.midX - G.discRadius, atCarry.source.midY - G.discRadius) + G.discRadius
             expect(atCarry.front.radius >= farthest, "its front has crossed the whole disc before the carry")
-            expect(M.Drop.gatherAt == 0.34 + W.carryAfter && M.Drop.handoff == 0.55 + W.carryAfter, "the carry waits for it")
+            expect(M.Drop.gatherAt == 0.34 + W.carryAfter && M.Drop.handoff == 0.70 + W.carryAfter, "the carry waits for it")
             var rd = e
             rd.reduce = true
             expect(W.front(rd, now: d0 + 0.5, slot: 1, count: 6) == nil, "reduce motion: no distortion wave")
@@ -891,7 +891,14 @@ enum BloomSelfTest {
         expect(M.hubContent(e, now: d0 + M.Drop.hubContentAt + M.Drop.hubContent + 0.001).opacity == 0, "its picture and capsule have gone")
         let discEnd = M.disc(e, now: d0 + M.Drop.handoff)
         expect(abs(discEnd.scale * G.discRadius * 2 - M.Drop.discTo) < 0.5 && discEnd.opacity == 1, "the disc's glass contracts to just under the ring")
-        expect(M.Drop.handoff == 0.55 + M.Drop.afterWave && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 550 ms after the wave, no gap")
+        expect(M.Drop.handoff == 0.70 + M.Drop.afterWave && ChipMotion.ringAppearDelay == M.Drop.handoff, "the result chip picks up the ring at 700 ms after the wave, no gap")
+        // The match cut: the glass draws in slowly at first and fastest on the cut.
+        let speeds = stride(from: 0.0, to: 1.0, by: 0.05).map { (M.intoCut($0 + 0.01) - M.intoCut($0)) / 0.01 }
+        expect(zip(speeds, speeds.dropFirst()).allSatisfy { $0 <= $1 + 1e-6 } && (speeds.last ?? 0) > 2.5,
+               "the glass draws in on a match cut: always speeding up, fastest on the cut")
+        expect(abs(ChipMotion.springStartSpeed * Double(ChipMotion.chipSize.width - ChipMotion.dropRingDiameter)
+                   - Double(G.discRadius * 2 - ChipMotion.dropRingDiameter) * M.intoCutEndSpeed / M.Drop.disc) < 1,
+               "and the chip leaves the ring as fast as the glass arrived")
         expect(M.Drop.ringSide == ChipMotion.dropRingDiameter, "the same 56 pt ring")
         expect(M.busyUntil(e, count: 6) >= d0 + M.Drop.handoff, "the frame clock runs to the handoff")
 
