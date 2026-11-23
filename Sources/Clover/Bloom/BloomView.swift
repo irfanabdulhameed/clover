@@ -98,6 +98,16 @@ struct BloomScene: View {
             if let carried, carried < model.leaves.count {
                 slot(carried, model.leaves[carried], count: count, center: center, e, origin: origin)
             }
+            if e.drop != nil, !e.reduce {
+                // The chip's own frosted glass comes in under the ring just before the chip's
+                // window takes over, so the chip's first frame is this one. It is there,
+                // unseen, from the drop: a system blur view built mid-motion would cost a frame.
+                ChipGlassBackground(cornerRadius: Motion.Drop.ringSide / 2, clover: model.chipTinted)
+                    .frame(width: Motion.Drop.ringSide, height: Motion.Drop.ringSide)
+                    .scaleEffect(Motion.carryRing(e, now: now)?.scale ?? 1)
+                    .opacity(Motion.chipGlassIn(e, now: now))
+                    .position(center)
+            }
             if let ring = Motion.carryRing(e, now: now) {
                 // The ring on the hub's glass: the chip's own ring, which it picks up here.
                 if e.reduce {

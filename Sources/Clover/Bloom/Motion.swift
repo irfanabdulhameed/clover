@@ -238,7 +238,8 @@ enum Motion {
         /// The disc's glass contracts to just under the ring, once the leaves are going.
         static var discAt: TimeInterval { 0.44 + afterWave }
         static let disc: TimeInterval = 0.11
-        static let discTo: CGFloat = 62
+        /// Exactly the chip's ring size, so the chip's own glass takes over with no step.
+        static var discTo: CGFloat { ChipMotion.dropRingDiameter }
         /// The hub's picture and capsule go, and the hub shrinks to the ring's size.
         static var hubContentAt: TimeInterval { 0.34 + afterWave }
         static let hubContent: TimeInterval = 0.10
@@ -835,6 +836,13 @@ extension Motion {
         let p = settle(phase(t, Drop.glideStart, Drop.glide))
         let offset = CGSize(width: -center.x * CGFloat(p), height: -center.y * CGFloat(p))
         return (Look(scale: lift * lerp(1, Drop.glideTo, p), offset: offset), .lit)
+    }
+
+    /// How far the chip's glass has come in under the clover's ring: 0 at the ring, 1 at the
+    /// handoff.
+    static func chipGlassIn(_ e: BloomEvents, now: TimeInterval) -> Double {
+        guard let drop = e.drop else { return 0 }
+        return settle(phase(now - drop.at, Drop.ringAt, Drop.handoff - Drop.ringAt))
     }
 
     /// The ring on the hub's glass, from the moment the leaf is taken in. Nil before.

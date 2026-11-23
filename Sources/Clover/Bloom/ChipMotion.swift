@@ -238,6 +238,13 @@ struct ChipPlayback {
     }
 
     func ringProgress(at t: Double) -> Double {
+        // Taking the clover's empty ring over, it starts empty too and fills as the chip
+        // grows, however far the job has got: no jump at the handoff.
+        let fill = ringStart != nil && !reduced ? ChipMotion.out(t - appearAt, over: ChipMotion.grow) : 1
+        return fill * jobProgress(at: t)
+    }
+
+    private func jobProgress(at t: Double) -> Double {
         guard let endedAt else { return displayed(at: t) }
         guard let kind = ending?.kind, kind == .done || kind == .partial else { return displayed(at: min(t, endedAt)) }
         let start = max(endedAt, appearAt)

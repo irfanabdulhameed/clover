@@ -418,6 +418,7 @@ final class BloomController: BloomInteractionDelegate {
         bloom.reduceMotion = model.settings.reduceMotion
         triggerToggle = TriggerToggle(keyDown: NSEvent.modifierFlags.contains(model.settings.triggerKey.flag))
         bloom.tint = model.settings.glassTint
+        bloom.chipTinted = model.settings.leafStyle == .clover
         let c = BloomLayout.clampedCenter(anchor, bounds: BloomController.extent, visible: screen.visibleFrame)
         center = c
         let side = BloomGeometry.panelSize

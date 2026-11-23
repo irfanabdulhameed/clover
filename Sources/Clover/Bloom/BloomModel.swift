@@ -59,6 +59,9 @@ final class BloomModel: ObservableObject {
     @Published private(set) var animating = false
     /// The glass's tint (Dashboard → Clover → Glass tint); none is clear glass.
     @Published var tint = GlassTint.none
+    /// The result chip's glass is tinted with the clover's green: the ring's glass matches it
+    /// as the chip takes the ring over.
+    var chipTinted = false
     /// The point of the tray, as a fraction of its size, that it grows out of: the side
     /// nearest the More slot. Set by the controller when it places the tray.
     var trayAnchor = CGPoint(x: 0.5, y: 0.5)
